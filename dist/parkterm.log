@@ -1,0 +1,57 @@
+2026-08-27 14:43:52 [WARNING] 无法恢复 SHA-1 签名支持: type object 'DSSKey' has no attribute 'HASHES'
+2026-08-27 14:43:52 [INFO] 已启用兼容老式SSH算法(ssh-rsa/ssh-dss等)以支持老网关设备
+2026-08-27 14:43:53 [INFO] Session cleanup thread started (interval=60s)
+2026-08-27 14:43:54 [INFO] ParkTerm V2.0.6 starting on http://127.0.0.1:5000
+2026-08-27 14:43:54 [INFO] Log file: E:\AIStudy\ParkTerm2.0\dist\parkterm.log
+2026-08-27 14:43:54 [INFO] Python: 3.13.15 (tags/v3.13.15:4061bc4, Aug  5 2026, 13:05:39) [MSC v.1944 64 bit (AMD64)]
+2026-08-27 14:43:54 [INFO] Paramiko: 3.5.1
+2026-08-27 14:44:05 [INFO] Connect request: host=172.1.0.44, port=23333, user=root
+2026-08-27 14:44:05 [INFO] Connecting to 172.1.0.44:23333 as root
+2026-08-27 14:44:05 [DEBUG] Standard SSHClient.connect
+2026-08-27 14:44:05 [INFO] Standard connect succeeded
+2026-08-27 14:44:05 [DEBUG] SSH keepalive enabled: 30s
+2026-08-27 14:44:05 [INFO] Connected to 172.1.0.44:23333, shell invoked
+2026-08-27 14:44:06 [INFO] Opening dedicated file-operation SSH connection
+2026-08-27 14:44:06 [DEBUG] Standard SSHClient.connect
+2026-08-27 14:44:06 [INFO] Standard connect succeeded
+2026-08-27 14:44:06 [INFO] listdir: SFTP tier OK (49 items)
+2026-08-27 14:44:07 [DEBUG] run_command 'ls' raw output: 'ls\r\nNot Support Cmd Yet!\r\r\n\r\r\n# '
+2026-08-27 14:44:07 [DEBUG] run_command 'ls' filtered: 'Not Support Cmd Yet!'
+2026-08-27 14:44:07 [DEBUG] check_level1 'ls' output: 'Not Support Cmd Yet!'
+2026-08-27 14:44:07 [DEBUG] run_command 'display device manuinfo' raw output: 'display device manuinfo\r\nDEVICE_NAME:VMS-U500-H16\r\r\nDEVICE_SERIAL_NUMBER:210235C8R83249000004\r\r\nMAC_ADDRESS:C479-05C0-07F9\r\r\nMANUFACTURING_DATE:2024-09-26\r\r\nVENDOR_NAME:UNIVIEW\r\r\n##\r\n\r\r\n# \r\r\n# '
+2026-08-27 14:44:07 [DEBUG] run_command 'display device manuinfo' filtered: 'DEVICE_NAME:VMS-U500-H16\nDEVICE_SERIAL_NUMBER:210235C8R83249000004\nMAC_ADDRESS:C479-05C0-07F9\nMANUFACTURING_DATE:2024-09-26\nVENDOR_NAME:UNIVIEW'
+2026-08-27 14:44:07 [DEBUG] run_command 'display device manuinfo': 'DEVICE_NAME:VMS-U500-H16\nDEVICE_SERIAL_NUMBER:210235C8R83249000004\nMAC_ADDRESS:C479-05C0-07F9\nMANUFACTURING_DATE:2024-09-26\nVENDOR_NAME:UNIVIEW'
+2026-08-27 14:44:08 [DEBUG] run_command 'update -v' raw output: 'update -v\r\nPUB:VMS-B2101.1.3.9.P17\r\nINN:VMSV200R001B01V1.3.9.P17\r\nBOARD_TYPE:VMS-U500-H16\r\nBUILD:2026-07-20 19:35\r\n\r\r\n# \r\r\n# '
+2026-08-27 14:44:08 [DEBUG] run_command 'update -v' filtered: 'PUB:VMS-B2101.1.3.9.P17\nINN:VMSV200R001B01V1.3.9.P17\nBOARD_TYPE:VMS-U500-H16\nBUILD:2026-07-20 19:35'
+2026-08-27 14:44:08 [DEBUG] run_command 'update -v': 'PUB:VMS-B2101.1.3.9.P17\nINN:VMSV200R001B01V1.3.9.P17\nBOARD_TYPE:VMS-U500-H16\nBUILD:2026-07-20 19:35'
+2026-08-27 14:44:08 [INFO] Device info result: {'device_name': 'VMS-U500-H16', 'serial_number': '210235C8R83249000004', 'pub': 'VMS-B2101.1.3.9.P17'}
+2026-08-28 11:52:31 [WARNING] 无法恢复 SHA-1 签名支持: type object 'DSSKey' has no attribute 'HASHES'
+2026-08-28 11:52:31 [INFO] 已启用兼容老式SSH算法(ssh-rsa/ssh-dss等)以支持老网关设备
+2026-08-28 11:52:32 [INFO] Session cleanup thread started (interval=60s)
+2026-08-28 11:52:33 [INFO] ParkTerm V2.0.7 starting on http://127.0.0.1:5000
+2026-08-28 11:52:33 [INFO] Log file: E:\AIStudy\ParkTerm2.0\dist\parkterm.log
+2026-08-28 11:52:33 [INFO] Python: 3.13.15 (tags/v3.13.15:4061bc4, Aug  5 2026, 13:05:39) [MSC v.1944 64 bit (AMD64)]
+2026-08-28 11:52:33 [INFO] Paramiko: 3.5.1
+2026-08-28 11:53:31 [INFO] Connect request: host=172.1.0.50, port=23333, user=root
+2026-08-28 11:53:31 [INFO] Connecting to 172.1.0.50:23333 as root
+2026-08-28 11:53:31 [DEBUG] Standard SSHClient.connect
+2026-08-28 11:53:32 [INFO] Standard connect succeeded
+2026-08-28 11:53:32 [DEBUG] SSH keepalive enabled: 30s
+2026-08-28 11:53:32 [INFO] Connected to 172.1.0.50:23333, shell invoked
+2026-08-28 11:53:33 [INFO] Opening dedicated file-operation SSH connection
+2026-08-28 11:53:33 [DEBUG] Standard SSHClient.connect
+2026-08-28 11:53:33 [INFO] Standard connect succeeded
+2026-08-28 11:53:33 [INFO] listdir: SFTP tier OK (49 items)
+2026-08-28 11:53:33 [DEBUG] run_command_exec 'ls' output: ''
+2026-08-28 11:53:34 [DEBUG] run_command_exec 'display device manuinfo' output: ''
+2026-08-28 11:53:34 [DEBUG] run_command 'ls' raw output: 'ls\r\nNot Support Cmd Yet!\r\r\n\r\r\n# '
+2026-08-28 11:53:34 [DEBUG] run_command 'ls' filtered: 'Not Support Cmd Yet!'
+2026-08-28 11:53:34 [DEBUG] check_level1 'ls' output: 'Not Support Cmd Yet!'
+2026-08-28 11:53:34 [DEBUG] run_command 'display device manuinfo' raw output: 'display device manuinfo\r\nDEVICE_NAME:VMS-U500-H16\r\r\nDEVICE_SERIAL_NUMBER:210235C8R83249000004\r\r\nMAC_ADDRESS:C479-05C0-07F9\r\r\nMANUFACTURING_DATE:2024-09-26\r\r\nVENDOR_NAME:UNIVIEW\r\r\n##\r\n\r\r\n# \r\r\n# '
+2026-08-28 11:53:34 [DEBUG] run_command 'display device manuinfo' filtered: 'DEVICE_NAME:VMS-U500-H16\nDEVICE_SERIAL_NUMBER:210235C8R83249000004\nMAC_ADDRESS:C479-05C0-07F9\nMANUFACTURING_DATE:2024-09-26\nVENDOR_NAME:UNIVIEW'
+2026-08-28 11:53:34 [DEBUG] run_command fallback 'display device manuinfo': 'DEVICE_NAME:VMS-U500-H16\nDEVICE_SERIAL_NUMBER:210235C8R83249000004\nMAC_ADDRESS:C479-05C0-07F9\nMANUFACTURING_DATE:2024-09-26\nVENDOR_NAME:UNIVIEW'
+2026-08-28 11:53:35 [DEBUG] run_command_exec 'update -v' output: ''
+2026-08-28 11:53:35 [DEBUG] run_command 'update -v' raw output: 'update -v\r\nPUB:VMS-B2101.1.3.9.P17\r\nINN:VMSV200R001B01V1.3.9.P17\r\nBOARD_TYPE:VMS-U500-H16\r\nBUILD:2026-07-20 19:35\r\n\r\r\n# '
+2026-08-28 11:53:35 [DEBUG] run_command 'update -v' filtered: 'PUB:VMS-B2101.1.3.9.P17\nINN:VMSV200R001B01V1.3.9.P17\nBOARD_TYPE:VMS-U500-H16\nBUILD:2026-07-20 19:35'
+2026-08-28 11:53:35 [DEBUG] run_command fallback 'update -v': 'PUB:VMS-B2101.1.3.9.P17\nINN:VMSV200R001B01V1.3.9.P17\nBOARD_TYPE:VMS-U500-H16\nBUILD:2026-07-20 19:35'
+2026-08-28 11:53:35 [INFO] Device info result: {'device_name': 'VMS-U500-H16', 'serial_number': '210235C8R83249000004', 'pub': 'VMS-B2101.1.3.9.P17'}

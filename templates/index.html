@@ -1,0 +1,1652 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ParkTerm</title>
+<link rel="stylesheet" href="/static/css/xterm.min.css">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1d23;color:#c9d1d9;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ===== Top Bar ===== */
+.topbar{background:#161b22;border-bottom:1px solid #30363d;padding:0 20px;height:44px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.topbar-left{display:flex;align-items:center;gap:10px;overflow:hidden}
+.topbar-left svg{flex-shrink:0}
+.topbar-left img{width:24px;height:24px;flex-shrink:0}
+.topbar-left .brand{font-size:15px;font-weight:700;color:#e6edf3;letter-spacing:.3px;white-space:nowrap}
+.product-info{display:flex;align-items:center;gap:16px;margin-left:4px;overflow:hidden}
+.product-info .pi-badge{font-size:12px;padding:2px 8px;border-radius:10px;white-space:nowrap;background:transparent;color:#8b949e;border:1px solid #30363d}
+.product-info .pi-badge b{color:#8b949e;font-weight:600}
+.pi-label{font-size:11px;color:#6e7681;font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-left:8px;padding:2px 8px;border-radius:4px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);color:#60a5fa}
+.topbar-right{display:flex;align-items:center;gap:14px;flex-shrink:0}
+.topbar-icons{display:flex;align-items:center;gap:4px;margin-right:4px}
+.topbar-icon-btn{width:30px;height:30px;border-radius:7px;border:none;background:transparent;color:#9ca3af;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.topbar-icon-btn:hover{background:#1f2937;color:#e6edf3}
+.topbar-addr{font-size:12px;color:#8b949e;font-family:'Cascadia Code',monospace}
+.status-badge{font-size:11px;padding:3px 10px;border-radius:12px;font-weight:500}
+.status-disconnected{background:#30363d;color:#8b949e}
+.status-connected{background:#1a4731;color:#3fb950}
+.status-connecting{background:#4d2d00;color:#d29922}
+.topbar-btns{display:flex;gap:6px}
+
+/* ===== Buttons ===== */
+.btn{padding:6px 14px;border:1px solid #30363d;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;user-select:none}
+.btn-primary{background:linear-gradient(135deg,#3b82f6 0%,#2563eb 100%);color:#fff;border-color:#2563eb}.btn-primary:hover{box-shadow:0 4px 12px rgba(59,130,246,.35);transform:translateY(-1px)}.btn-primary:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-danger{background:#8b2020;color:#fff;border-color:#8b2020}.btn-danger:hover{background:#b33030}
+.btn-secondary{background:#21262d;color:#c9d1d9}.btn-secondary:hover{background:#30363d}
+.btn-warning{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);color:#fff;border-color:#d97706}.btn-warning:hover{box-shadow:0 4px 12px rgba(245,158,11,.3);transform:translateY(-1px)}
+.btn-signal{background:#5a1a1a;color:#f85149;border-color:#5a1a1a;font-weight:600;font-family:'Cascadia Code',monospace;font-size:12px}
+.btn-signal:hover{background:#8b2020;color:#fff}
+.btn-file{background:#1a3a5c;color:#79c0ff;border-color:#1a3a5c}.btn-file:hover{background:#245180;color:#fff}
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn-icon{padding:4px 8px;font-size:14px;line-height:1;min-width:28px;text-align:center}
+.btn-topbar{padding:4px 12px;font-size:12px}
+
+/* ===== Welcome Screen (Login) ===== */
+.welcome-screen{flex:1;display:flex;align-items:center;justify-content:center;background:#1a1d23}
+.welcome-screen.hidden{display:none}
+.login-card{width:460px;max-width:90vw;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:32px;box-shadow:0 16px 48px rgba(0,0,0,.4)}
+.login-logo{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.login-logo svg{flex-shrink:0}
+.login-logo img{width:28px;height:28px;flex-shrink:0}
+.login-logo span{font-size:18px;font-weight:700;color:#e6edf3}
+.login-subtitle{font-size:13px;color:#8b949e;margin-bottom:24px}
+.login-form{display:flex;flex-direction:column;gap:14px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:11px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+.form-group input{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 12px;color:#c9d1d9;font-size:14px;outline:none;transition:border-color .2s,box-shadow .2s}
+.form-group input:focus{border-color:#58a6ff;box-shadow:0 0 0 2px rgba(88,166,255,.15)}
+.login-btn{margin-top:6px;padding:10px;font-size:15px;font-weight:600;width:100%}
+.login-tip{margin-top:16px;padding:12px;background:#0d1117;border:1px solid #21262d;border-radius:6px;font-size:12px;color:#8b949e;line-height:1.7}
+.login-tip strong{color:#d29922}
+
+/* Tooltip icon for port hint */
+.tooltip-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:4px;border-radius:50%;background:#30363d;color:#8b949e;font-size:11px;font-weight:700;font-style:normal;line-height:1;cursor:help;position:relative;vertical-align:middle;flex-shrink:0}
+.tooltip-icon:hover{background:#58a6ff;color:#fff}
+.tooltip-icon .tooltip-text{visibility:hidden;opacity:0;transition:opacity .2s,visibility .2s;position:absolute;bottom:150%;left:50%;transform:translateX(-50%);background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px 14px;font-size:12px;color:#c9d1d9;font-weight:400;font-style:normal;white-space:nowrap;line-height:1.6;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.tooltip-icon .tooltip-text strong{color:#d29922}
+.tooltip-icon:hover .tooltip-text{visibility:visible;opacity:1}
+
+/* ===== Toolbar ===== */
+.terminal-toolbar{background:#161b22;border-bottom:1px solid #30363d;padding:6px 16px;display:flex;flex-direction:column;gap:5px;flex-shrink:0}
+.toolbar-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.toolbar-sep{width:1px;height:18px;background:#30363d;flex-shrink:0}
+.toolbar-label{font-size:11px;color:#6e7681;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+.toolbar-group-label{padding:0 2px;margin-right:2px;border-right:1px solid #21262d;padding-right:8px}
+
+/* ===== Main area ===== */
+.main-area{flex:1;display:none;overflow:hidden}
+.main-area.active{display:flex}
+
+/* ===== Terminal Pane ===== */
+.terminal-pane{flex:1;display:flex;flex-direction:column;overflow:hidden;background:#0d1117;min-width:300px;position:relative}
+#xterm-container{flex:1;overflow:hidden;padding-left:8px}
+#xterm-container .xterm{height:100%}
+#xterm-container .xterm-viewport{overflow-y:auto}
+
+/* ===== Status Bar (终端底部状态栏) ===== */
+.status-bar{height:26px;background:#0d1117;border-top:1px solid #30363d;display:flex;align-items:center;padding:0 12px;gap:14px;font-size:10.5px;color:#6b7280;flex-shrink:0}
+.status-bar .item{display:flex;align-items:center;gap:4px}
+.status-bar .item .dot{width:6px;height:6px;border-radius:50%}
+.status-bar .item .dot.g{background:#22c55e}
+.status-bar .item .dot.b{background:#3b82f6}
+.status-bar .spacer{flex:1}
+
+/* ===== File Manager Resize Handle ===== */
+.fm-resize-handle{position:absolute;right:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:10}
+.fm-resize-handle:hover,.fm-resize-handle.active{background:rgba(88,166,255,.3)}
+
+/* ===== Disabled button state ===== */
+.btn-disabled-l2{background:#21262d !important;color:#484f58 !important;border-color:#30363d !important;cursor:not-allowed !important;opacity:1 !important}
+.btn-disabled-l2:hover{background:#21262d !important}
+
+/* ===== File Manager Panel (Left) — always visible ===== */
+.fm-panel{width:380px;background:#0d1117;border-right:2px solid #30363d;display:flex;flex-direction:column;flex-shrink:0;position:relative}
+.fm-head{background:#161b22;padding:8px 12px;border-bottom:1px solid #30363d}
+.fm-head-row{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.fm-path{flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:4px 8px;color:#79c0ff;font-family:'Cascadia Code',monospace;font-size:12px;outline:none}
+.fm-path:focus{border-color:#58a6ff}
+.fm-actions{display:flex;gap:6px;flex-wrap:wrap}
+.fm-body{flex:1;overflow:auto;font-size:13px}
+.fm-table{width:100%;border-collapse:collapse}
+.fm-table th{background:#161b22;color:#8b949e;font-size:13px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;padding:6px 10px;text-align:left;position:sticky;top:0;z-index:1;border-bottom:1px solid #30363d}
+.fm-table td{padding:5px 8px;border-bottom:1px solid #161b22;cursor:default;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+.fm-table tr:hover td{background:#161b22}
+.fm-table tr.fm-dir td{cursor:pointer}
+.fm-table tr.fm-dir:hover td{background:#1a3a5c;color:#79c0ff}
+.fm-table tr.fm-file-row{cursor:default}
+.fm-table tr.fm-file-row:hover td{background:#161b22}
+.fm-table tr.fm-selected td{background:#1a3a5c !important}
+.fm-icon{width:20px;text-align:center;font-size:14px}
+.fm-name{color:#e6edf3}.fm-dir .fm-name{color:#79c0ff;font-weight:500}
+.fm-size{color:#8b949e;text-align:right;font-size:12px}
+.fm-time{color:#6e7681;font-size:12px}
+.fm-ops{white-space:nowrap;width:60px;text-align:center}
+.fm-ops-btn{cursor:pointer;padding:2px 5px;border-radius:3px;font-size:13px;transition:background .15s;display:inline-block;vertical-align:middle}
+.fm-ops-btn:hover{background:#30363d}
+.fm-ops-btn.op-del{color:#f85149}
+.fm-ops-btn.op-dl{color:#79c0ff}
+.fm-empty{padding:30px;text-align:center;color:#484f58;font-size:13px}
+.fm-status{padding:6px 12px;border-top:1px solid #30363d;font-size:11px;color:#6e7681;text-align:right;flex-shrink:0}
+
+/* Transfer Progress Bar */
+.fm-progress{border-top:1px solid #30363d;padding:8px 12px;background:#161b22;flex-shrink:0}
+.fm-progress.hidden{display:none}
+.fm-progress-info{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px}
+.fm-progress-name{color:#79c0ff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.fm-progress-detail{color:#8b949e;white-space:nowrap;margin-left:8px}
+.fm-progress-track{height:4px;background:#21262d;border-radius:2px;overflow:hidden}
+.fm-progress-fill{height:100%;background:linear-gradient(90deg,#238636,#3fb950);border-radius:2px;transition:width .3s ease;width:0}
+.fm-progress-status{font-size:11px;color:#6e7681;margin-top:4px}
+
+/* ===== Context Menu ===== */
+.ctx-menu{position:fixed;z-index:2000;background:#1c2128;border:1px solid #30363d;border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.ctx-menu.hidden{display:none}
+.ctx-menu-item{padding:7px 16px;font-size:13px;color:#c9d1d9;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .1s}
+.ctx-menu-item:hover{background:#30363d}
+.ctx-menu-item.ctx-danger{color:#f85149}
+.ctx-menu-item.ctx-danger:hover{background:#5a1a1a}
+.ctx-menu-sep{height:1px;background:#30363d;margin:4px 0}
+
+/* ===== Password Toggle ===== */
+.pwd-wrapper{position:relative;margin-bottom:14px}
+.pwd-wrapper input{display:block;width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px 40px 10px 12px;color:#c9d1d9;font-size:14px;outline:none;line-height:1.5;box-sizing:border-box}
+.pwd-wrapper input:focus{border-color:#58a6ff;box-shadow:0 0 0 2px rgba(88,166,255,.15)}
+.pwd-wrapper input.pwd-hidden{-webkit-text-security:disc;text-security:disc}
+.pwd-toggle{position:absolute;right:8px;top:0;bottom:0;width:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#6e7681;background:none;border:none;padding:0;margin:0}
+.pwd-toggle:hover{color:#c9d1d9}
+.pwd-toggle svg{width:16px;height:16px;display:block}
+
+/* ===== Modals ===== */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(2px)}
+.modal-overlay.hidden{display:none}
+.modal-box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;width:420px;max-width:90vw;box-shadow:0 16px 48px rgba(0,0,0,.4)}
+.modal-box h3{font-size:17px;color:#e6edf3;margin-bottom:12px;font-weight:600}
+.modal-box p{font-size:13px;color:#8b949e;margin-bottom:14px;line-height:1.6}
+.modal-box input[type="text"]{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px 12px;color:#c9d1d9;font-size:14px;outline:none;margin-bottom:14px}
+.modal-box input[type="text"]:focus{border-color:#58a6ff;box-shadow:0 0 0 2px rgba(88,166,255,.15)}
+.modal-status{font-size:13px;margin-bottom:12px;min-height:20px}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end}
+
+/* ===== 抓包弹窗（仅覆盖右侧终端窗口，居中） ===== */
+.cap-layer{position:absolute;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:50;backdrop-filter:blur(2px);overflow:auto}
+.cap-layer.hidden{display:none}
+
+/* 抓包管理列表 */
+.capture-card{width:860px;max-width:96%;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:22px;box-shadow:0 16px 48px rgba(0,0,0,.4)}
+.capture-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.capture-header svg{flex-shrink:0;color:#79c0ff}
+.capture-title{font-size:17px;font-weight:700;color:#e6edf3}
+.capture-subtitle{font-size:12px;color:#8b949e;margin:0 0 16px;line-height:1.6;max-width:840px}
+.capture-list{border:1px solid #30363d;border-radius:8px;background:#0d1117;overflow:hidden;margin-bottom:18px}
+.c-head{display:grid;grid-template-columns:240px 1fr 0.7fr 0.8fr 0.8fr 88px 92px;gap:10px;padding:10px 10px;align-items:center;background:#161b22;border-bottom:1px solid #30363d}
+.c-head span{font-size:12px;font-weight:600;color:#b6c0ca}
+.c-head .h-act{text-align:left}
+.capture-item{display:grid;grid-template-columns:240px 1fr 0.7fr 0.8fr 0.8fr 88px 92px;align-items:center;gap:10px;padding:12px 10px;border-bottom:1px solid #21262d;transition:background .15s}
+.capture-item:last-child{border-bottom:none}
+.capture-item:hover{background:#161b22}
+.c-name{font-size:12px;font-weight:400;color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-field{font-size:12px;color:#c9d1d9;line-height:1.55;word-break:break-all;display:flex;align-items:center}
+.c-field .all{color:#8b949e}
+.c-field.c-cmd{color:#79c0ff;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.c-target{font-size:12px;color:#c9d1d9;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status-badge{font-size:12px;font-weight:600;height:24px;min-width:68px;padding:0 6px;border-radius:10px;white-space:nowrap;line-height:1;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;justify-self:start}
+.status-pending{background:#21262d;color:#8b949e}
+.status-running{background:#1a4731;color:#3fb950}
+.status-ended{background:#1a3a5c;color:#79c0ff}
+.c-actions{display:flex;gap:5px;justify-content:flex-start;align-items:center}
+.c-actions button{border:none;border-radius:8px;width:26px;height:24px;cursor:pointer;transition:filter .15s;line-height:1;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;padding:0;color:#fff}
+.c-actions button:hover{filter:brightness(1.1)}
+.c-actions button svg{width:14px;height:14px;display:block}
+.c-actions button.btn-start{background:#238636}
+.c-actions button.btn-stop{background:#d29922}
+.c-actions button.btn-dl{background:#1f6feb}
+.c-actions button.btn-del{background:#da3633}
+.capture-empty{padding:30px;text-align:center;color:#484f58;font-size:13px}
+.capture-footer{display:flex;gap:10px;justify-content:flex-end}
+/* 新增抓包表单 */
+.capture-new-card{width:440px;max-width:92%;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:32px;box-shadow:0 16px 48px rgba(0,0,0,.4)}
+.capture-new-card .login-logo{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+.capture-new-card .login-logo svg{flex-shrink:0;color:#79c0ff}
+.capture-new-card .login-logo span{font-size:18px;font-weight:700;color:#e6edf3}
+.cap-form{display:flex;flex-direction:column;gap:5px;margin-bottom:15px}
+.cap-form > label{font-size:12px;color:#8b949e;font-weight:500}
+.cap-form input{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:9px 12px;color:#c9d1d9;font-size:14px;outline:none;transition:border-color .2s}
+.cap-form input:focus{border-color:#58a6ff;box-shadow:0 0 0 2px rgba(88,166,255,.15)}
+.cap-form input::placeholder{color:#6e7681;font-size:13px}
+.cap-note{font-size:11px;color:#6e7681;margin-top:-6px;margin-bottom:10px;line-height:1.5}
+.cap-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#30363d;border-radius:5px;border:2px solid #0d1117}
+::-webkit-scrollbar-thumb:hover{background:#484f58}
+
+/* ===== Spinner ===== */
+.spinner{display:inline-block;width:13px;height:13px;border:2px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:4px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ===== Top Bar ===== -->
+<div class="topbar">
+  <div class="topbar-left">
+    <img src="data:image/png;base64,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" style="width:24px;height:24px;flex-shrink:0">
+    <span class="brand">ParkTerm</span>
+    <span class="pi-label">设备信息</span>
+    <div class="product-info" id="productInfo"></div>
+  </div>
+  <div class="topbar-right">
+    <div class="topbar-icons">
+      <button class="btn btn-icon btn-secondary" onclick="window.open('https://chat.uniview.com/?source=uniview','_blank')" title="晓宇AI售后助手" style="padding:2px 6px">
+        <img src="/static/img/xiaoyu_ai.gif" style="width:30px;height:30px;border-radius:50%;vertical-align:middle">
+      </button>
+      <button class="btn btn-icon btn-secondary" onclick="openFeedback()" title="建议反馈" style="padding:6px 6px">
+        <img src="/static/img/feedback_icon.png" style="width:22px;height:22px;vertical-align:middle">
+      </button>
+    </div>
+    <span class="topbar-addr" id="topbarAddr"></span>
+    <span id="statusBadge" class="status-badge status-disconnected"></span>
+    <div class="topbar-btns" id="topbarBtns"></div>
+  </div>
+</div>
+
+<!-- ===== Welcome Screen (Login) ===== -->
+<div class="welcome-screen" id="welcomeScreen">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAO/ElEQVR4Aeyce6wjVR3Hf792ioSHRBNQhPbeRZ5ZBVGCuqtmV2QRgiaKmCCCgAJueAjbdon+s5d/JLm3vYuAvIJCwFUDaDDyEJSwBlmJykPk5UJk2yqgGBLDgrJ32p/n3Nyb9PZO25npmemcme+kZ9s5c87v/M7nzKed23t3coQNBECgLwEI0hcNDoAAEQTBWQACAwhAkAFwcAgEIAjOARAYQCBCQQaMikMgYAkBCGLJQiHN8RCAIOPhjlEtIQBBLFkopDkeAhBkPNwxqiUE7BTEErhI034CEMT+NcQMIiQAQSKEi9D2E4Ag9q8hZhAhAQgSIVyEtp8ABOlZQ+yCQDcBCNJNA69BoIcABOkBgl0Q6CYAQbpp4DUI9BCAID1AsAsC3QQgSDeNaF8juoUEIIiFi4aU4yMAQeJjjZEsJABBLFw0pBwfAQgSH2uMZCEBCGLhoi1PGTVREYAgUZFF3FQQiFyQQq3xEVXOy9daNzi15kMoYDDqOZCvN6/O1xpn7DbTOjJqCyMTRCfv1Jv3C/GfVLmBSc5Tk1mDQmBAozFgoQuZ+NYOy5+dWusR9eZ7IkW0RSJIod68QCdPQusiyhthQWCBgKxSb773qk+UqxYqjD4ZF6RQa/xIhK4xmiWCjY+AJSOrT5SLnJlm3XS6RgVRH3Wnq8up000niXgg4IsA0wanvmOVr7Y+G5kTZLb1bvVRt8nnuGgGAtEQkPwMTT2zl6ngxgTJS+c4ldQhquABAmMkIKvye+59sqkEjAnCHTrIVFKIAwKjEFBXMoeP0r+7rzFBhNlYUt0J4nV6CUQ1M2Y62FRsY4Iw0SRhA4EEEFBfFB1gKg1jgphKCHFAIEkEIEiSVgO5JI4ABEnckiChJBGAIElaDeRiioCxOMkXRORyETotz7nD3PZb7yRpr1Wzr6jyb1V8P9QPbjdJh87OUWGlu/ONvYk7q9UXC+uJ6FFV/D+EfqX6XUDSWeVWSpwTPkpIzlR1P/EfBC1tIZBgQfj5fNs93K1OTLWrpZ++XT5wO112+BtudcVWdWLW3RwfRkIP+wLN8pl2pXhue2Ppll2V/Z+lqZU73fLktrlK6Xq3Uvq4OsFv8hNHSbDerZZOVP2udauTv9d9dlWLT7UrE7epuq8Q8TRhSxWBZArCvNOtFI94+7KD/tqX9obi6+pk/RQRf48GbC7nS2554sEBTahdmThXOPe5QW1Y+CIlwfWD2riV4mXD4gzqj2PJI5BIQVik6heVOikvIWJvAZiqVD6gRT62dvnAu1Uzz78GVfncOlct+voL5UFxVHw8LCOQQEH4yWHv1L2MWegu6tmEaIdbLtV6qgfuMne2eDVgynmKQ322fnH6NEd1ggksF2TcybJsDZqCkPt0bx/1rv9sb92w/bny5BPE9NbSdvym/jljad3gPe84g/vgaDIJJE4Q9Y3Vb4OicjtvP7asD9Mzy+r8VAg9t7SZBBZtvv+yOPO1+McyAokThEP8odlu+X2KvdyZcu+lcNuSfuqbqyX7AUKG7RdgCDSNmkDiBFETPl6VQI92Z+7Y3g7qq9ujeuuG7b9juvl+1WbJH7oJUZGueCnQH2J6xVFx8bCQQPIEEVpXmGl9NBDLHK/2aH+kU2ue4FHft6qTJ8+bTDiOc2rfTh4H+sXxaIqqhBOIVRDfLFi+5betU28cxyTf8GzPtNmz3qvyisa7ROhar0PEMk2zrSWfLJ7tdOWgOPo4ilUEEimIuqw5LT/bUr+ZHszyHbOtg0n4N31bCR3hzDSm+h7vOuAUcvd27S576XRo4PHFDsPiLLbDsx0EEimIRscd2ZKvt26kK18u6f3e4sw0N7c78kJv/bJ95k3qUuuhQp/LtkK9eYFTa+wiko8t67ukQvQl239VTqcsqV7Yydebn1dx/jk8zkIHPFlBILGCaHrqdxnnOm33OafWerxQa/5YSTGj79bo1Bqvqt9XXKLb+CxrhOVR1ffpQq11u1NrTDszjXvyteZL6rLqGiIukL9td5XTnbqf7q/KVEHHqzefVr+s/AUR70fYUkUg0YLMkxbaQ70rH60vu5QUFVI/xBPxeyjMJrRSSNQP3Fwl5pPUV7iTYcLM91P9VYxN8/FU3DBx0Cf5BJIviD+GaAUCkRCAIJFgRdC0EIAgaVlJzCMSAhAkEqwImhYCECQtK4l5REIAggzFigZZJgBBsrz6mPtQAhBkKCI0yDIBY4KoX+TtyDJIzD05BNQvcl81lY0xQVikYSopxAGBUQiISP+74QQMbEwQtzoxpcYO/P/JVZ/sPjDzKAjctXAuGoltTBCdjVspreUcnaMut17U+yggEBsBfQ8CkcvVOfgFk2MaFUQnNrehdHO7UjqEO+2jSd8mFGUtOLQjZZDTt5Mtlz5g8pODFjbjgizEpbmNK5509W1CUbaCw4pIGczfTnbxxDP8HJkghvNEOBAYCwEIMhbs0Q+KEcwQgCBmOCJKSglAkJQuLKZlhgAEMcMRUVJKAIKkdGExLTMEIIgZjlmKkqm5GhekMPvyMfl682qn3rzPqTUfQgGDyM+BmcY9aozZfP3vJ5u216gg+j5R0nH/yEIXktBnVbJrUAgMKGIG+hZMRJeydH6pz0EyuBkTZN5e5k0Gc0MoEAhOQJ2D+iomeEfvHsYEUfZ+2nsI1IJAvAQ64n7N1IjGBCGRw0wlhThZJWBm3kx0sJlIROYEYd7DVFKIAwIjERDafaT+XZ3NCdIVFC9BIC0EIEhaVhLziIQABIkEK4KmhQAESctKYh6DCYQ8CkFCgkO3bBCAINlYZ8wyJAEIEhIcumWDAATJxjpjliEJQJCQ4NAtGwT8CJINEpglCHgQsFMQ5p3E/DMimRGi69W8fq0KHiBgnICFgvA2N7f7oW65+CW3MrGxXSmtdyuldSxyqXE6CJh5ArYJ8h+3UlxNl+77Su/KzVUnrhSWL/fWYx8ERiFgmSDy3UGTbZcn7oAkgwjhWFACYxYkWLpCvH1YD0gyjBCOByFglSB+JwZJ/JJCu2EErBKESQ4dNqHF45BkkQSeRyFglSDqEms9XfHSpN8JQxK/pNCuHwGrBGGiyULBme43Ga96SOJFBXV+CeT8NkxKOyE5tVBr3T40n64GkKQLBl4GImCdIHp2kERTQImDgJWCaDCQRFNAiZqAtYJoMJBEU0CJkoDVgmgwkERTQImKgPWCaDBxS6LHRMkGgVQIopcKkmgKKKYJpEYQDQaSaAooJgmkShANBpJoCiimCKROEA0GkmgKKCYIpFIQDcZSSXTqKAkikFpBNGNIoimgjEIg1YJoMJBEU0AJSyD1gmgwkERTQAlDIBOCaDCQRFNACUogM4JoMKEl6dDZur/dBdmHIZApQTSgUJJsLN0iRLcQtswRyJwgeoXDSJJj+oPui5ItApkURC9xUEmk035O90PJFoHMCsLEd8xVir7vxMi5/BHZOjUwW00gk4IElUOD6ggdq59RPAikuCpzgoSRIz/dPIuJziJsmSOQKUE44GWVPhvy9capnKOb9WuU7BHIjCCh5RAOdIuh7J1C6Z5xJgSBHOk+iaOcXeoFgRxRnj7Rxx73CKkWBHKM+/Syf/zUCgI57D85kzCDVAoCOZJwaqUjh9QJAjnScWImZRapEgRyJOW0siIPX0mmRhDI4Wu90SgggVQIAjkCrjqa+yZgvSCQw/dao2EIAlYLAjlCrDi6BCJgrSCQI9A6o3FIAuEECTmYqW6QwxRJxBlGwDpBIMewJcVxkwSsEkSIdszNuRuDAJj//xz4k/UgyNC2i4BVgjDJdfTtFTu68h/4MglyqE+824jkk+5uhf3cSoljKzudPZk7HxbiHw6EhIMDCVgliFrs7QNn03UwIXLoG0Oc6VYmfkcX7/9aV3rRv5x631tz5ckn2pXi16lDJ0Q/YDpHSJwgJjAnQQ41j78EuWuKah/Zw91YekC9udwY2QApDmyVIOoS69Bha5EQOdRVlfx8WK5xHs+xPBnneGkZyypBiPg7NGBLjBzzOXa2zj8l5B/c+C7cQlgmCO3j1FqP0ObX9u+dbmGmcQkn6tuq3JreHMe5jxvfhaOfC9dtnL1kldP533an3rrTqTWm87XmdU6t+YAwbx5nVsvGZv7isroxVnSEPzTG4a0d2kJBFGuRvUjkFCKuMtE3ieh4VYY94j7+wUKtlYhbBjnTzXXq57fz4gaQhvHsFMQS8gs3yL7VqTU+QVe9sm+saU+9vEehvuPofK31A8rR/bGOnaLBIEjEi6kkOYOIH3Z2zf1LXQpKbGUv902R3OPqk+McwhaaAAQJjQ4ds0AAgmRhlTHH0AQgSGh03R3xOq0EIEhaVxbzMkIAghjBiCBpJQBB0rqymJcRAhDECEYESSsBCJL0lUV+YyUAQcaKH4MnnQAESfoKIb+xEoAgY8WPwZNOAIIkfYWQ31gJQJCx4h/v4Bh9OAFjggiR79vxEDYQiJAAk/zDVHhjgrDI86aSQhwQGIWACL04Sv/uvsYEkRz9rTswXoPAuAgIsbE3a2OCtDn3oALygip4gMAYCfC29ptv3G0qAWOC0Ibi68rcy00lhjhWExhf8tyu0tTKnaYSMCeIyqhdKW5RPyBtUS/xAIH4CQjNuuXJbSYHNiqITmyuMvFVZrpQv0YBgbgICMnVbrVUNj2ecUF0gnPl0vdzwkcR0wN6HwUEoiPA29Sl/UntysTFUYwRiSA60V3V4lNuuXSCuuQ6RpXz1ST0zZP17ThRiMBgBAbCdI36xDhTvwm7leJqdWl/H0W0RSbIYr7qkusxVW5UkzjfrZTWooDBaOdAaW27XLqoXZm4Tb8JL55nUT1HLkhUiSMuCMRBAILEQRljWEsAgli7dEg8DgIQJA7KGMNaAhDE2qVD4sYJeASEIB5QUAUCiwQgyCIJPIOABwEI4gEFVSCwSACCLJLAMwh4EIAgHlBQBQKLBEwJshgPzyCQKgIQJFXLicmYJgBBTBNFvFQRgCCpWk5MxjQBCGKaKOKlioAFgqSKNyZjGQEIYtmCId14CUCQeHljNMsIQBDLFgzpxksAgsTLG6NZRiDbgli2WEg3fgIQJH7mGNEiAhDEosVCqvETgCDxM8eIFhGAIBYtFlKNnwAEiYg5wqaDwP8BAAD//1kRZx4AAAAGSURBVAMAPqxlNqHESoMAAAAASUVORK5CYII=" style="width:28px;height:28px">
+      <span>ParkTerm</span>
+    </div>
+    <div class="login-form" style="margin-top:8px">
+      <div class="form-group"><label>地址</label><input type="text" id="inputHost" placeholder="192.168.1.60" value="192.168.1.60" autofocus></div>
+      <div class="form-group"><label>端口<i class="tooltip-icon">?<span class="tooltip-text">VMS-U产品端口说明：<br>1.3.7.P02 以前版本默认端口 <strong>22</strong><br>1.3.7.P02 及以后版本默认端口 <strong>23333</strong></span></i></label><input type="number" id="inputPort" value="23333"></div>
+      <div class="form-group"><label>用户名</label><input type="text" id="inputUser" placeholder="root" value="root"></div>
+      <div class="form-group"><label>密码</label><input type="password" id="inputPass" placeholder="密码"></div>
+      <button class="btn btn-primary login-btn" id="btnConnect" onclick="doConnect()">连 接</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Main Area (after connection) ===== -->
+<div class="main-area" id="mainArea">
+  <!-- File Manager (LEFT side) -->
+  <div class="fm-panel" id="fmPanel">
+    <div class="fm-resize-handle" id="fmResizeHandle"></div>
+    <div class="fm-head">
+      <div class="fm-head-row">
+        <!-- Curved return arrow icon for parent directory -->
+        <button class="btn btn-icon btn-secondary" onclick="fmUp()" title="上级目录" style="padding:3px 6px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" fill="#FFB86C" stroke="#d29922" stroke-width="1"/><path d="M12 16V10" stroke="#45A9F9" stroke-width="2" stroke-linecap="round"/><polyline points="9,13 12,10 15,13" stroke="#45A9F9" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <input class="fm-path" id="fmPath" value="/" onkeydown="if(event.key==='Enter')fmNavigate(this.value)">
+        <span id="fmItemCount" style="color:#8b949e;font-size:12px;margin-left:8px;white-space:nowrap"></span>
+        <button class="btn btn-icon btn-secondary" onclick="fmRefresh()" title="刷新"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 8a6 6 0 0 1 10.3-4.1"/><path d="M14 8a6 6 0 0 1-10.3 4.1"/><polyline points="12 1 13 4 10 4.5"/><polyline points="4 15 3 12 6 11.5"/></svg></button>
+      </div>
+      <div class="fm-actions">
+        <button class="btn btn-sm btn-file" onclick="fmTriggerUpload()">上传到此处</button>
+        <button class="btn btn-sm btn-secondary" onclick="fmMkdir()">新建文件夹</button>
+        <input type="file" id="fmFileInput" style="display:none" onchange="fmHandleUpload(this)">
+      </div>
+    </div>
+    <div class="fm-body" id="fmBody"><div class="fm-empty">文件管理器</div></div>
+    <!-- Transfer Progress Bar -->
+    <div class="fm-progress hidden" id="fmProgress">
+      <div class="fm-progress-info">
+        <span class="fm-progress-name" id="fmProgressName"></span>
+        <span class="fm-progress-detail" id="fmProgressDetail">0%</span>
+      </div>
+      <div class="fm-progress-track"><div class="fm-progress-fill" id="fmProgressFill"></div></div>
+      <div class="fm-progress-status" id="fmProgressStatus"></div>
+    </div>
+    <div class="fm-status" id="fmStatus" style="height:26px;padding:0 12px;border-top:1px solid #30363d;font-size:11px;color:#6e7681;display:flex;align-items:center;justify-content:flex-end;flex-shrink:0"></div>
+  </div>
+
+  <!-- Terminal Pane -->
+  <div class="terminal-pane">
+    <div class="terminal-toolbar">
+      <div class="toolbar-row">
+        <button class="btn btn-warning" id="btnLevel2" onclick="showLevel2Modal()" style="display:none">进入二级</button>
+        <button class="btn btn-secondary" onclick="viewService()">服务查看</button>
+        <button class="btn btn-secondary" onclick="quickCmd('ifconfig')">网口查看</button>
+        <div class="toolbar-sep"></div>
+        <button class="btn btn-secondary" id="btnMem" onclick="clkMem()">内存查看</button>
+        <button class="btn btn-secondary" id="btnDisk" onclick="clkDisk()">磁盘空间查看</button>
+        <div class="toolbar-sep"></div>
+        <button class="btn btn-secondary" id="btnCapture" onclick="openCaptureMgmt()" title="抓包管理（tcpdump）">抓包管理</button>
+      </div>
+    </div>
+    <div id="xterm-container"></div>
+    <!-- 终端底部状态栏 -->
+    <div class="status-bar" id="statusBar">
+      <div class="item"><span class="dot g"></span><span id="sbConn">SSH 已连接</span></div>
+      <div class="item"><span class="dot b"></span><span id="sbLatency">延迟 --</span></div>
+      <div class="spacer"></div>
+      <div class="item">UTF-8</div>
+      <div class="item" id="sbLevel">一级环境</div>
+      <div class="item">ParkTerm V2.0.7</div>
+    </div>
+
+    <!-- 新增抓包（仅覆盖右侧终端窗口，居中） -->
+    <div class="cap-layer hidden" id="newCaptureLayer">
+      <div class="capture-new-card">
+        <div class="login-logo">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+          <span>新增抓包</span>
+        </div>
+        <div class="cap-form">
+          <label>IP 地址（留空 = 全部，支持多个用英文逗号隔开）</label>
+          <input type="text" id="capAddr" placeholder="例如 172.1.90.111 或 192.168.1.1,10.0.0.1">
+        </div>
+        <div class="cap-form">
+          <label>端口（留空 = 全部，支持多个用英文逗号隔开）</label>
+          <input type="text" id="capPort" placeholder="例如 8800 或 5060,8080">
+        </div>
+        <div class="cap-note">抓包文件由系统自动命名（ParkTerm_当前日期_时间），无需手动填写。</div>
+        <div class="cap-form">
+          <label>大小限制（MB）</label>
+          <input type="number" id="capSize" value="100" min="1">
+        </div>
+        <div class="cap-form">
+          <label>时间限制（分钟）</label>
+          <input type="number" id="capTime" value="5" min="1">
+        </div>
+        <div class="cap-actions">
+          <button class="btn btn-secondary" onclick="closeNewCapture()">取消</button>
+          <button class="btn btn-secondary" onclick="saveNewCapture()">仅保存</button>
+          <button class="btn btn-primary" onclick="startNewCapture()">保存并启动抓包</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 抓包管理（仅覆盖右侧终端窗口，居中） -->
+    <div class="cap-layer hidden" id="captureListLayer">
+      <div class="capture-card">
+        <div class="capture-header">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+          <span class="capture-title">抓包管理</span>
+        </div>
+        <div class="capture-subtitle">抓包文件默认保存路径：/root/parkterm_captures/<br>仅展示当前目录下本工具操作的抓包文件，最大支持 3 个，超过将自动覆盖删除，请及时下载备份。</div>
+        <div class="capture-list" id="captureListBody"></div>
+        <div class="capture-footer">
+          <button class="btn btn-secondary" onclick="closeCaptureMgmt()">关闭窗口</button>
+          <button class="btn btn-primary" onclick="openNewCapture()">+ 新增抓包</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Right-click Context Menu -->
+<div class="ctx-menu hidden" id="ctxMenu">
+  <div class="ctx-menu-item" onclick="ctxDownload()">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    <span>下载</span>
+  </div>
+  <div class="ctx-menu-sep"></div>
+  <div class="ctx-menu-item ctx-danger" onclick="ctxDelete()">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+    <span>删除</span>
+  </div>
+</div>
+
+<!-- Level 2 Modal -->
+<div class="modal-overlay hidden" id="level2Modal"><div class="modal-box">
+  <h3>请输入二级密码</h3>
+  <p style="font-size:12px;color:#6e7681">二级密码请联系宇视工程师获取</p>
+  <div class="pwd-wrapper">
+    <input type="text" id="inputLevel2Pass" class="pwd-hidden" placeholder="请输入二级密码">
+    <button class="pwd-toggle" onclick="toggleLevel2Pwd()" type="button" id="level2EyeBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12Q12 3 21 12"/><line x1="6.2" y1="9.3" x2="5.7" y2="11.3"/><line x1="8.9" y1="7.4" x2="8.1" y2="9.4"/><line x1="12" y1="6.5" x2="12" y2="8.8"/><line x1="15.1" y1="7.4" x2="15.9" y2="9.4"/><line x1="17.8" y1="9.3" x2="18.3" y2="11.3"/></svg>
+    </button>
+  </div>
+  <div class="modal-actions">
+    <button class="btn btn-secondary" onclick="closeLevel2Modal()">取消</button>
+    <button class="btn btn-warning" onclick="doLevel2()">确认进入</button>
+  </div>
+</div></div>
+
+<!-- Upload Modal -->
+<div class="modal-overlay hidden" id="uploadModal"><div class="modal-box">
+  <h3>上传文件</h3>
+  <p>文件: <strong id="uploadFileName" style="color:#58a6ff"></strong></p>
+  <input type="text" id="inputUploadPath" placeholder="远程路径，如 /tmp/app.conf">
+  <div class="modal-status" id="uploadStatus"></div>
+  <div class="modal-actions">
+    <button class="btn btn-secondary" onclick="closeUploadModal()">取消</button>
+    <button class="btn btn-file" onclick="doUpload()" id="btnUpload">上 传</button>
+  </div>
+</div></div>
+
+<!-- 抓包弹窗（新增/管理）已移至右侧终端窗口内，见 terminal-pane 中的 newCaptureLayer / captureListLayer -->
+
+<!-- Scripts -->
+<script src="/static/js/xterm.min.js"></script>
+<script src="/static/js/addon-fit.min.js"></script>
+<script src="/static/js/addon-web-links.min.js"></script>
+<script src="/static/js/socket.io.min.js"></script>
+
+<script>
+// ================================================================
+//  Global State
+// ================================================================
+var sessionId = null;
+var socket = null;
+var term = null;
+var fitAddon = null;
+var isConnecting = false;
+var fmCurrentPath = '/';
+var level2Done = false;
+var pendingUploadFile = null;
+var connHost = '';
+var connPort = 23333;
+var currentTransferId = null;
+var ctxTarget = null;
+var deviceVersion = ''; // 存储设备版本号，供服务查看自动识别命令
+var needLevel2 = false;  // 当前是否处于需二级才能解锁的功能受限环境
+
+// ================================================================
+//  Electerm Dark Theme
+// ================================================================
+var electermTheme = {
+  background: '#0a0e1a',
+  foreground: '#c9d1d9',
+  cursor: '#3b82f6',
+  cursorAccent: '#0a0e1a',
+  selectionBackground: 'rgba(59,130,246,0.3)',
+  black: '#484f58',
+  red: '#f85149',
+  green: '#22c55e',
+  yellow: '#d29922',
+  blue: '#3b82f6',
+  magenta: '#bc8cff',
+  cyan: '#39c5cf',
+  white: '#c9d1d9',
+  brightBlack: '#6e7681',
+  brightRed: '#ff7b72',
+  brightGreen: '#4ade80',
+  brightYellow: '#e3b341',
+  brightBlue: '#60a5fa',
+  brightMagenta: '#d2a8ff',
+  brightCyan: '#56d4dd',
+  brightWhite: '#f0f6fc'
+};
+
+// ================================================================
+//  Topbar Dynamic Buttons
+// ================================================================
+function updateTopbarBtns() {
+  var el = document.getElementById('topbarBtns');
+  if (sessionId) {
+    el.innerHTML = '<button class="btn btn-danger btn-topbar" onclick="doDisconnect()">断开连接</button>';
+  } else {
+    el.innerHTML = '';
+  }
+}
+
+// ================================================================
+//  Terminal Initialization
+// ================================================================
+function initTerminal() {
+  if (term) { term.dispose(); term = null; }
+
+  term = new Terminal({
+    theme: electermTheme,
+    fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace",
+    fontSize: 14,
+    lineHeight: 1.35,
+    cursorBlink: true,
+    cursorStyle: 'block',
+    scrollback: 5000,
+    convertEol: true,
+    allowProposedApi: true
+  });
+
+  fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.loadAddon(new WebLinksAddon.WebLinksAddon());
+
+  var container = document.getElementById('xterm-container');
+  container.innerHTML = '';
+  term.open(container);
+
+  requestAnimationFrame(function() {
+    try { fitAddon.fit(); } catch(e) {}
+  });
+
+  term.onData(function(data) {
+    if (socket && socket.connected && sessionId) {
+      socket.emit('term-input', { data: data });
+    }
+  });
+
+  term.onBinary(function(data) {
+    if (socket && socket.connected && sessionId) {
+      socket.emit('term-input', { data: data });
+    }
+  });
+
+  term.onResize(function(size) {
+    if (socket && socket.connected && sessionId) {
+      socket.emit('term-resize', { cols: size.cols, rows: size.rows });
+    }
+  });
+
+  term.attachCustomKeyEventHandler(function(ev) {
+    return true;
+  });
+
+  window.addEventListener('resize', function() {
+    if (fitAddon && term) {
+      requestAnimationFrame(function() { try { fitAddon.fit(); } catch(e) {} });
+    }
+  });
+}
+
+// ================================================================
+//  Socket.IO
+// ================================================================
+function initSocket() {
+  if (socket) { socket.removeAllListeners(); socket.disconnect(); socket = null; }
+
+  socket = io({ reconnection: true, reconnectionAttempts: 10, reconnectionDelay: 1000, timeout: 10000 });
+
+  socket.on('connect', function() {
+    if (sessionId) socket.emit('term-init', { session_id: sessionId });
+  });
+
+  socket.on('term-ready', function() {
+    if (term) {
+      term.focus();
+      requestAnimationFrame(function() { try { fitAddon.fit(); } catch(e) {} });
+    }
+  });
+
+  socket.on('term-data', function(data) {
+    if (term) term.write(data);
+  });
+
+  socket.on('term-disconnect', function() {
+    if (term) term.write('\r\n\x1b[31m[连接已断开]\x1b[0m\r\n');
+    setStatus('disconnected', '已断开');
+    sessionId = null;
+    updateTopbarBtns();
+  });
+
+  socket.on('term-error', function(msg) {
+    if (term) term.write('\r\n\x1b[31m[错误] ' + msg + '\x1b[0m\r\n');
+  });
+
+  // Transfer progress from backend (SFTP phase)
+  socket.on('transfer-progress', function(data) {
+    console.log('[TransferProgress]', data);
+    if (data.transfer_id === currentTransferId) {
+      updateProgressBar(data.transferred, data.total, data.percent);
+    }
+  });
+
+  socket.on('connect_error', function() {});
+  socket.on('disconnect', function() {});
+}
+
+// ================================================================
+//  UI Helpers
+// ================================================================
+function setStatus(s, t) {
+  var b = document.getElementById('statusBadge');
+  b.className = 'status-badge status-' + s;
+  b.textContent = t;
+}
+
+function setConnected(c, host, port) {
+  document.getElementById('welcomeScreen').classList.toggle('hidden', c);
+  document.getElementById('mainArea').classList.toggle('active', c);
+
+  if (c) {
+    connHost = host;
+    connPort = port;
+    document.getElementById('topbarAddr').textContent = host + ':' + port;
+    setStatus('connected', '已连接');
+    // 更新底部状态栏
+    var sb = document.getElementById('statusBar');
+    if (sb) {
+      document.getElementById('sbConn').textContent = 'SSH 已连接';
+      document.getElementById('sbLatency').textContent = '延迟 --';
+      document.getElementById('sbLevel').textContent = '一级环境';
+    }
+    level2Done = false;
+    needLevel2 = false;
+    setLevel2Gating(false);   // 连接初始先解锁，autoCheckLevel1 会按需置灰
+    deviceVersion = '';
+    document.getElementById('fmBody').innerHTML = '<div class="fm-empty"><span class="spinner"></span> 加载中...</div>';
+    document.getElementById('fmItemCount').textContent = '';
+    document.getElementById('productInfo').innerHTML = '';
+
+    // Reset level 2 button
+    var btn2 = document.getElementById('btnLevel2');
+    btn2.disabled = false;
+    btn2.classList.remove('btn-disabled-l2');
+    btn2.title = '';
+    btn2.textContent = '进入二级';
+    btn2.style.display = 'none';
+
+    initTerminal();
+    initSocket();
+    initFMResize();
+    updateTopbarBtns();
+
+    // Load file manager immediately (independent of level-1/level-2 status)
+    // and start device info + level-1 check in parallel
+    setTimeout(function() { fmRefresh(); }, 800);
+    setTimeout(function() { autoCheckLevel1(); }, 1200);
+    setTimeout(function() { fetchDeviceInfo(0); }, 1500);
+  } else {
+    document.getElementById('topbarAddr').textContent = '';
+    setStatus('disconnected', '');
+    if (socket) { socket.removeAllListeners(); socket.disconnect(); socket = null; }
+    if (term) { term.dispose(); term = null; }
+    document.getElementById('productInfo').innerHTML = '';
+    document.getElementById('fmBody').innerHTML = '<div class="fm-empty">未连接</div>';
+    document.getElementById('fmItemCount').textContent = '';
+    fmCurrentPath = '/';
+    level2Done = false;
+    needLevel2 = false;
+    setLevel2Gating(false);
+    deviceVersion = '';
+    var btn2 = document.getElementById('btnLevel2');
+    btn2.style.display = 'none';
+    btn2.disabled = false;
+    btn2.classList.remove('btn-disabled-l2');
+    btn2.title = '';
+    btn2.textContent = '进入二级';
+    updateTopbarBtns();
+  }
+}
+
+async function autoCheckLevel1() {
+  if (!sessionId) return;
+  try {
+    var r = await api('check_level1', { session_id: sessionId });
+    if (r.ok && r.need_level2 === true) {
+      // Need level 2 — show button, prompt, and grey out restricted tools.
+      var btn2 = document.getElementById('btnLevel2');
+      btn2.style.display = '';
+      setLevel2Gating(true);
+      if (term) {
+        // Keep the current (yellow) color, but use the plain terminal font
+        // (like the 内存查看 command output) — no bold emphasis.
+        term.write('\r\n\x1b[33m当前为后台一级环境，部分命令不识别，如需获取完整权限请点击工具栏 “进入二级” 按钮！\x1b[0m');
+        socket.emit('term-input', { data: '\n' });
+      }
+      // Ensure one fresh newline (send Enter) so the shell prompt drops to a new line.
+      setTimeout(function() {
+        if (socket && sessionId) {
+          socket.emit('term-input', { data: '\n' });
+        }
+      }, 500);
+    } else {
+      // Level-1 with full access (or unknown) — unlock the restricted tools.
+      setLevel2Gating(false);
+    }
+    // In all cases: file manager already loaded, no action needed here
+  } catch(e) {
+    console.log('[autoCheckLevel1] error:', e);
+  }
+}
+
+async function api(ep, d) {
+  var r = await fetch('/api/' + ep, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+  return r.json();
+}
+
+// ================================================================
+//  Device Info (Product Model, Version, Serial)
+// ================================================================
+// Retry intervals: 1s, 5s, 10s, 30s, 60s (5 retries)
+var DEVICE_INFO_RETRY_DELAYS = [1000, 5000, 10000, 30000, 60000];
+
+async function fetchDeviceInfo(retryCount) {
+  if (!sessionId) return;
+  if (retryCount === 0) {
+    document.getElementById('productInfo').innerHTML = '<span style="color:#6e7681;font-size:11px"><span class="spinner"></span>加载设备信息...</span>';
+  } else {
+    document.getElementById('productInfo').innerHTML = '<span style="color:#6e7681;font-size:11px"><span class="spinner"></span>重新获取(' + (retryCount) + '/5)...</span>';
+  }
+  try {
+    var r = await api('device_info', { session_id: sessionId });
+    console.log('[DeviceInfo] response (retry ' + retryCount + '):', r);
+    if (r.ok && r.info) {
+      var info = r.info;
+      var hasAny = info.device_name || info.pub || info.serial_number;
+      if (hasAny) {
+        deviceVersion = info.pub || ''; // 保存版本号供服务查看使用
+        var html = '';
+        if (info.device_name) {
+          html += '<span class="pi-badge"><b>型号：</b>' + escHtml(info.device_name) + '</span>';
+        }
+        if (info.pub) {
+          html += '<span class="pi-badge"><b>版本：</b>' + escHtml(info.pub) + '</span>';
+        }
+        if (info.serial_number) {
+          html += '<span class="pi-badge"><b>SN：</b>' + escHtml(info.serial_number) + '</span>';
+        }
+        document.getElementById('productInfo').innerHTML = html;
+        return;
+      }
+      // No fields parsed — treat as failure, retry if possible
+      console.log('[DeviceInfo] no fields parsed from:', info);
+    } else {
+      console.log('[DeviceInfo] API failed:', r);
+    }
+    // Retry logic
+    if (retryCount < DEVICE_INFO_RETRY_DELAYS.length) {
+      var delay = DEVICE_INFO_RETRY_DELAYS[retryCount];
+      console.log('[DeviceInfo] will retry in ' + (delay/1000) + 's (attempt ' + (retryCount+1) + '/' + DEVICE_INFO_RETRY_DELAYS.length + ')');
+      setTimeout(function() { fetchDeviceInfo(retryCount + 1); }, delay);
+    } else {
+      document.getElementById('productInfo').innerHTML = '';
+      console.log('[DeviceInfo] all retries exhausted');
+    }
+  } catch(e) {
+    console.log('[DeviceInfo] exception:', e);
+    if (retryCount < DEVICE_INFO_RETRY_DELAYS.length) {
+      var delay2 = DEVICE_INFO_RETRY_DELAYS[retryCount];
+      setTimeout(function() { fetchDeviceInfo(retryCount + 1); }, delay2);
+    } else {
+      document.getElementById('productInfo').innerHTML = '';
+    }
+  }
+}
+
+// ================================================================
+//  Connection
+// ================================================================
+async function doConnect() {
+  if (isConnecting) return;
+  isConnecting = true;
+
+  var host = document.getElementById('inputHost').value.trim();
+  var port = parseInt(document.getElementById('inputPort').value) || 23333;
+  var user = document.getElementById('inputUser').value.trim();
+  var pass = document.getElementById('inputPass').value;
+
+  if (!host || !user) { alert('请填写主机地址和用户名'); isConnecting = false; return; }
+
+  var btn = document.getElementById('btnConnect');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>连接中...';
+  setStatus('connecting', '连接中...');
+
+  try {
+    var r = await api('connect', { host: host, port: port, username: user, password: pass });
+    if (r.ok) {
+      sessionId = r.session_id;
+      setConnected(true, host, port);
+    } else {
+      setStatus('disconnected', '失败');
+      alert('连接失败: ' + r.error);
+    }
+  } catch (e) {
+    setStatus('disconnected', '异常');
+    alert('连接异常: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '连 接';
+    isConnecting = false;
+  }
+}
+
+async function doDisconnect() {
+  if (sessionId) {
+    try { await api('disconnect', { session_id: sessionId }); } catch(e) {}
+  }
+  // Clear password, keep host/port/username for convenience
+  document.getElementById('inputPass').value = '';
+  // Reset state and return to login screen
+  sessionId = null;
+  setConnected(false);
+  // Focus password field for quick reconnect
+  setTimeout(function() { document.getElementById('inputPass').focus(); }, 100);
+}
+
+// ================================================================
+//  Quick Commands & Signals
+// ================================================================
+function quickCmd(cmd) {
+  if (!sessionId || !socket || !socket.connected) { alert('请先连接服务器'); return; }
+  socket.emit('term-input', { data: cmd + '\n' });
+}
+
+// 二级环境受限时，将内存查看/磁盘空间查看/抓包管理置灰并提示。
+// 进入二级成功后调用 setLevel2Gating(false) 解锁。
+function setLevel2Gating(need) {
+  needLevel2 = need;
+  ['btnMem', 'btnDisk', 'btnCapture'].forEach(function(id) {
+    var b = document.getElementById(id);
+    if (!b) return;
+    if (need) {
+      b.classList.add('btn-disabled-l2');
+      b.disabled = true;
+      b.title = '进入二级后解锁';
+    } else {
+      b.classList.remove('btn-disabled-l2');
+      b.disabled = false;
+      b.title = '';
+    }
+  });
+}
+
+// 受限环境下点击置灰按钮：仅给出提示，不执行。
+function hintLevel2Locked() {
+  // 置灰按钮的 title 已提供悬浮提示；此处不再弹窗打扰。
+}
+
+function clkMem() {
+  if (needLevel2) { hintLevel2Locked(); return; }
+  quickCmd('free -m');
+}
+function clkDisk() {
+  if (needLevel2) { hintLevel2Locked(); return; }
+  quickCmd('df -h');
+}
+
+// 根据版本号自动识别服务查看命令
+function viewService() {
+  if (!sessionId || !socket || !socket.connected) { alert('请先连接服务器'); return; }
+  var v = deviceVersion.toUpperCase();
+  var cmd = '';
+  if (v.indexOf('VMS-B') === 0) {
+    cmd = 'server.sh status';
+  } else if (v.indexOf('EGS-') === 0) {
+    cmd = 'FastGateServer.sh status';
+  } else if (v.indexOf('PARK-') === 0) {
+    cmd = 'SPARKServer.sh status';
+  }
+  if (cmd) {
+    socket.emit('term-input', { data: cmd + '\n' });
+  } else {
+    // 未知版本，终端打印提示
+    if (term) {
+      term.write('\r\n\x1b[33m查看服务命令执行失败，请手动执行相应命令\x1b[0m\r\n');
+    }
+  }
+}
+
+function sendSignal(sig) {
+  if (!sessionId || !socket || !socket.connected) return;
+  var signals = { 'Ctrl+C': '\x03' };
+  var char = signals[sig];
+  if (char) socket.emit('term-input', { data: char });
+}
+
+// ================================================================
+//  FM Resize Handle
+// ================================================================
+function initFMResize() {
+  var handle = document.getElementById('fmResizeHandle');
+  var panel = document.getElementById('fmPanel');
+  if (!handle || !panel) return;
+  var startX, startW;
+
+  handle.onmousedown = function(e) {
+    e.preventDefault();
+    startX = e.clientX;
+    startW = panel.offsetWidth;
+    handle.classList.add('active');
+    document.onmousemove = function(e) {
+      var w = startW + (e.clientX - startX);
+      if (w < 260) w = 260;
+      if (w > 700) w = 700;
+      panel.style.width = w + 'px';
+    };
+    document.onmouseup = function() {
+      document.onmousemove = null;
+      document.onmouseup = null;
+      handle.classList.remove('active');
+      if (fitAddon) requestAnimationFrame(function() { try { fitAddon.fit(); } catch(e) {} });
+    };
+  };
+}
+
+function clearTerminal() {
+  if (term) term.clear();
+}
+
+// ================================================================
+//  Level 2 Login
+// ================================================================
+function showLevel2Modal() {
+  if (!sessionId) { alert('请先连接服务器'); return; }
+  if (level2Done) return;
+  document.getElementById('level2Modal').classList.remove('hidden');
+  var inp = document.getElementById('inputLevel2Pass');
+  inp.classList.add('pwd-hidden');
+  inp.value = '';
+  inp.focus();
+  updateEyeIcon(false);
+}
+
+function closeLevel2Modal() {
+  document.getElementById('level2Modal').classList.add('hidden');
+  document.getElementById('inputLevel2Pass').value = '';
+}
+
+function toggleLevel2Pwd() {
+  var inp = document.getElementById('inputLevel2Pass');
+  var isHidden = inp.classList.contains('pwd-hidden');
+  if (isHidden) {
+    inp.classList.remove('pwd-hidden');
+  } else {
+    inp.classList.add('pwd-hidden');
+  }
+  updateEyeIcon(isHidden);
+}
+
+function updateEyeIcon(showing) {
+  var btn = document.getElementById('level2EyeBtn');
+  if (showing) {
+    // Open eye - showing password
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  } else {
+    // Closed eye with eyelashes - password hidden (default)
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12Q12 3 21 12"/><line x1="6.2" y1="9.3" x2="5.7" y2="11.3"/><line x1="8.9" y1="7.4" x2="8.1" y2="9.4"/><line x1="12" y1="6.5" x2="12" y2="8.8"/><line x1="15.1" y1="7.4" x2="15.9" y2="9.4"/><line x1="17.8" y1="9.3" x2="18.3" y2="11.3"/></svg>';
+  }
+}
+
+async function doLevel2() {
+  var p = document.getElementById('inputLevel2Pass').value;
+  closeLevel2Modal();
+  // Dynamic dots animation
+  var dotCount = 0;
+  var dotInterval = setInterval(function() {
+    if (!term) return;
+    var dots = '.'.repeat(Math.min(dotCount, 20));
+    term.write('\r\x1b[36m正在进入二级环境，请稍候' + dots + '    \x1b[0m');
+    dotCount++;
+  }, 300);
+  try {
+    var r = await api('level2', { session_id: sessionId, password: p });
+    clearInterval(dotInterval);
+    if (r.ok && r.level2_ok) {
+      // Success: clear the "正在进入" line and confirm with one line.
+      if (term) {
+        term.write('\r\x1b[2K\x1b[32m已成功进入二级！\x1b[0m\r\n');
+        // Auto-send Enter to get a fresh shell prompt on a new line.
+        socket.emit('term-input', { data: '\n' });
+      }
+      level2Done = true;
+      // 更新底部状态栏权限等级
+      if (document.getElementById('sbLevel')) {
+        document.getElementById('sbLevel').textContent = '二级环境';
+      }
+      fmRefresh();
+      setLevel2Gating(false);   // 进入二级成功，解锁内存/磁盘/抓包管理
+      var btn2 = document.getElementById('btnLevel2');
+      btn2.disabled = true;
+      btn2.classList.add('btn-disabled-l2');
+      btn2.title = '当前已进入二级环境，无需重复进入';
+    } else if (r.ok && !r.level2_ok) {
+      // Wrong password (or other backend refusal): show the device's own
+      // output in RED, same terminal font as the surrounding text.
+      if (term) {
+        term.write('\r\x1b[2K');
+        var out = (r.output || '二级登录失败').trim();
+        // Strip any ANSI the device may have sent, then color it red.
+        out = out.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+        term.write('\x1b[31m' + out + '\x1b[0m\r\n');
+      }
+    } else {
+      // Backend exception
+      if (term) term.write('\r\x1b[2K\x1b[31m[二级登录失败] ' + escHtml(r.error) + '\x1b[0m\r\n');
+    }
+  } catch (e) {
+    clearInterval(dotInterval);
+    if (term) term.write('\r\x1b[2K\x1b[31m[错误] ' + escHtml(e.message) + '\x1b[0m\r\n');
+  }
+}
+
+// ================================================================
+//  File Manager
+// ================================================================
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return escHtml(s).replace(/"/g,'&quot;'); }
+
+function fmIcon(item) {
+  if (item.is_dir) return '<span style="color:#79c0ff">&#128193;</span>';
+  var ext = (item.name.split('.').pop() || '').toLowerCase();
+  var m = {
+    log:'<span style="color:#8b949e">&#128196;</span>',txt:'<span style="color:#8b949e">&#128196;</span>',
+    conf:'<span style="color:#d29922">&#9881;</span>',cfg:'<span style="color:#d29922">&#9881;</span>',ini:'<span style="color:#d29922">&#9881;</span>',
+    sh:'<span style="color:#3fb950">&#9881;</span>',py:'<span style="color:#3fb950">&#9881;</span>',
+    pcap:'<span style="color:#bc8cff">&#128269;</span>',gz:'<span style="color:#f85149">&#128230;</span>',zip:'<span style="color:#f85149">&#128230;</span>',tar:'<span style="color:#f85149">&#128230;</span>'
+  };
+  return m[ext] || '<span style="color:#6e7681">&#128196;</span>';
+}
+function fmSize(n){if(!n)return'-';if(n<1024)return n+'B';if(n<1048576)return(n/1024).toFixed(1)+'K';if(n<1073741824)return(n/1048576).toFixed(1)+'M';return(n/1073741824).toFixed(1)+'G';}
+function fmTime(ts){if(!ts)return'-';var d=new Date(ts*1000);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');}
+
+async function fmNavigate(path) {
+  if (!sessionId) return;
+  fmCurrentPath = path;
+  document.getElementById('fmPath').value = path;
+  document.getElementById('fmBody').innerHTML = '<div class="fm-empty"><span class="spinner"></span> 加载中...</div>';
+  try {
+    var r = await fetch('/api/sftp_ls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sessionId, path: path }) });
+    var res = await r.json();
+    if (!res.ok) {
+      if (res.need_level2) {
+        document.getElementById('fmBody').innerHTML = '<div class="fm-empty" style="color:#d29922">当前为后台一级受限环境，文件管理暂不可用<br><br><button class="btn btn-warning btn-sm" onclick="showLevel2Modal()">进入二级后重试</button></div>';
+        return;
+      }
+      document.getElementById('fmBody').innerHTML = '<div class="fm-empty" style="color:#f85149">'+escHtml(res.error)+'<br><br><button class="btn btn-sm btn-secondary" onclick="fmRefresh()">点此重试</button></div>';
+      return;
+    }
+    if (!res.items || !res.items.length) { document.getElementById('fmBody').innerHTML = '<div class="fm-empty">暂无文件列表</div>'; return; }
+
+    var h = '<table class="fm-table"><thead><tr>' +
+      '<th style="width:20px"></th>' +
+      '<th>名称<span style="color:#6e7681;font-weight:400;margin-left:2px">(' + res.items.length + ')</span></th>' +
+      '<th style="width:65px;text-align:right">大小</th>' +
+      '<th style="width:130px">修改时间</th>' +
+      '</tr></thead><tbody>';
+
+    if (path !== '/') {
+      h += '<tr class="fm-dir" ondblclick="fmUp()">' +
+        '<td class="fm-icon"><span style="color:#79c0ff">&#128193;</span></td>' +
+        '<td class="fm-name">..</td><td></td><td></td></tr>';
+    }
+
+    res.items.forEach(function(item) {
+      var fp = path.endsWith('/') ? path+item.name : path+'/'+item.name;
+      var esc = fp.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+      var escName = item.name.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+
+      if (item.is_dir) {
+        h += '<tr class="fm-dir" ondblclick="fmNavigate(\''+esc+'\')" oncontextmenu="showCtxMenu(event,\''+esc+'\',\''+escHtml(item.name)+'\',true)">' +
+          '<td class="fm-icon">'+fmIcon(item)+'</td>' +
+          '<td class="fm-name">'+escHtml(item.name)+'</td>' +
+          '<td class="fm-size">-</td>' +
+          '<td class="fm-time">'+fmTime(item.mtime)+'</td>' +
+          '</tr>';
+      } else {
+        h += '<tr class="fm-file-row" oncontextmenu="showCtxMenu(event,\''+esc+'\',\''+escHtml(item.name)+'\',false)">' +
+          '<td class="fm-icon">'+fmIcon(item)+'</td>' +
+          '<td class="fm-name">'+escHtml(item.name)+'</td>' +
+          '<td class="fm-size">'+fmSize(item.size)+'</td>' +
+          '<td class="fm-time">'+fmTime(item.mtime)+'</td>' +
+          '</tr>';
+      }
+    });
+    h += '</tbody></table>';
+    document.getElementById('fmBody').innerHTML = h;
+    // 更新底部状态栏：文件数量 + 总大小
+    var fileCount = 0;
+    var totalSize = 0;
+    res.items.forEach(function(item) {
+      if (!item.is_dir) {
+        fileCount++;
+        totalSize += (item.size || 0);
+      }
+    });
+    var statusText = fileCount + ' 个文件';
+    if (totalSize > 0) {
+      statusText += ' · 共 ' + fmSize(totalSize);
+    }
+    document.getElementById('fmStatus').textContent = statusText;
+    document.getElementById('fmItemCount').textContent = '';
+  } catch(e) {
+    document.getElementById('fmBody').innerHTML = '<div class="fm-empty" style="color:#f85149">'+escHtml(e.message)+'</div>';
+  }
+}
+
+function fmUp() {
+  if (fmCurrentPath==='/' || fmCurrentPath==='~' || fmCurrentPath==='') return;
+  var p = fmCurrentPath.replace(/\/$/,'').split('/');
+  p.pop();
+  fmNavigate(p.length<=1?'/':p.join('/'));
+}
+function fmRefresh() { fmNavigate(fmCurrentPath); }
+
+// ================================================================
+//  抓包 (tcpdump) — 多文件 / 右侧终端窗口内居中弹窗
+// ================================================================
+var capListTimer = null;
+
+function startCapPoll() {
+  if (capListTimer) return;
+  refreshCaptureList();
+  capListTimer = setInterval(refreshCaptureList, 2000);
+}
+function stopCapPoll() {
+  if (capListTimer) { clearInterval(capListTimer); capListTimer = null; }
+}
+
+// 抓包管理（列表）
+function openCaptureMgmt() {
+  if (!sessionId) { alert('请先连接服务器'); return; }
+  if (needLevel2) { alert('抓包管理需要进入二级环境后使用'); return; }
+  document.getElementById('newCaptureLayer').classList.add('hidden');
+  document.getElementById('captureListLayer').classList.remove('hidden');
+  startCapPoll();
+}
+function closeCaptureMgmt() {
+  document.getElementById('captureListLayer').classList.add('hidden');
+  stopCapPoll();
+}
+
+// 新增抓包
+function openNewCapture() {
+  document.getElementById('captureListLayer').classList.add('hidden');
+  stopCapPoll();
+  document.getElementById('capAddr').value = '';
+  document.getElementById('capPort').value = '';
+  document.getElementById('capSize').value = 100;
+  document.getElementById('capTime').value = 5;
+  document.getElementById('newCaptureLayer').classList.remove('hidden');
+}
+function closeNewCapture() {
+  if (document.getElementById('newCaptureLayer').classList.contains('hidden')) return;
+  document.getElementById('newCaptureLayer').classList.add('hidden');
+  // 取消新增后回到抓包管理列表
+  document.getElementById('captureListLayer').classList.remove('hidden');
+  startCapPoll();
+}
+
+async function startNewCapture() {
+  if (!sessionId) return;
+  var addr = document.getElementById('capAddr').value.trim();
+  var port = document.getElementById('capPort').value.trim();
+  var size = parseInt(document.getElementById('capSize').value) || 100;
+  var time = parseInt(document.getElementById('capTime').value) || 5;
+  // 不向终端打印任何抓包信息：抓包在后台运行，由「抓包管理」列表管理，
+  // 打印到终端会让用户误以为它在前台、容易误停。
+  try {
+    var r = await api('capture_start', {
+      session_id: sessionId, addr: addr, port: port, size_mb: size, time_min: time
+    });
+    if (r.ok && r.name) {
+      closeNewCapture();
+      document.getElementById('captureListLayer').classList.remove('hidden');
+      startCapPoll();
+    } else {
+      alert('启动抓包失败: ' + (r.error || '未知错误'));
+    }
+  } catch(e) { alert('启动抓包异常: ' + e.message); }
+}
+
+// 仅保存：创建「待启动」任务，不立即抓包（之后可在抓包管理里「启动」）
+async function saveNewCapture() {
+  if (!sessionId) return;
+  var addr = document.getElementById('capAddr').value.trim();
+  var port = document.getElementById('capPort').value.trim();
+  var size = parseInt(document.getElementById('capSize').value) || 100;
+  var time = parseInt(document.getElementById('capTime').value) || 5;
+  try {
+    var r = await api('capture_save', {
+      session_id: sessionId, addr: addr, port: port, size_mb: size, time_min: time
+    });
+    if (r.ok && r.name) {
+      closeNewCapture();
+      document.getElementById('captureListLayer').classList.remove('hidden');
+      startCapPoll();
+    } else {
+      alert('保存失败: ' + (r.error || '未知错误'));
+    }
+  } catch(e) { alert('保存异常: ' + e.message); }
+}
+
+async function refreshCaptureList() {
+  if (!sessionId) return;
+  try {
+    var r = await api('capture_list', { session_id: sessionId });
+    if (r.ok && r.captures) renderCaptureList(r.captures);
+  } catch(e) { /* 网络抖动忽略，下次轮询重试 */ }
+}
+
+function fmtBytes(n) {
+  if (!n) return '0B';
+  if (n < 1024) return n + 'B';
+  if (n < 1048576) return (n/1024).toFixed(1) + 'K';
+  if (n < 1073741824) return (n/1048576).toFixed(1) + 'M';
+  return (n/1073741824).toFixed(1) + 'G';
+}
+
+function fmtDuration(sec) {
+  if (sec == null || sec === undefined || sec < 0) return '-';
+  if (sec < 60) return sec + ' 秒';
+  var m = Math.floor(sec / 60), s = sec % 60;
+  return m + ' 分 ' + (s > 0 ? s + ' 秒' : '0 秒');
+}
+
+var CAP_ICON_PLAY  = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+var CAP_ICON_DL    = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+var CAP_ICON_DEL   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>';
+var CAP_ICON_STOP  = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+function buildFilterText(addr, port) {
+  var parts = [];
+  if (addr) {
+    var hosts = addr.split(',').map(function(h){return h.trim();}).filter(Boolean);
+    if (hosts.length) parts.push(hosts.length > 1 ? '(host ' + hosts.join(' or host ') + ')' : 'host ' + hosts[0]);
+  }
+  if (port) {
+    var ports = port.split(',').map(function(p){return p.trim();}).filter(Boolean);
+    if (ports.length) parts.push(ports.length > 1 ? '(port ' + ports.join(' or port ') + ')' : 'port ' + ports[0]);
+  }
+  return parts.length ? escHtml(parts.join(' ')) : '<span class="all">全部流量</span>';
+}
+
+function buildTargetText(addr, port) {
+  var a = (addr || '').trim(), p = (port || '').trim();
+  if (!a && !p) return '<span class="all">全部流量</span>';
+  var t = a || '';
+  if (p) t += (t ? ':' : '') + p;
+  return escHtml(t);
+}
+
+function renderCaptureList(captures) {
+  var body = document.getElementById('captureListBody');
+  if (!captures || captures.length === 0) {
+    body.innerHTML = '<div class="capture-empty">暂无抓包任务，点击「+ 新增抓包」开始。</div>';
+    return;
+  }
+  var html = '<div class="c-head">'
+    + '<span>名称</span><span>IP</span><span>端口</span><span>大小</span>'
+    + '<span>时长</span><span>状态</span>'
+    + '<span class="h-act">操作</span></div>';
+  captures.forEach(function(c) {
+    var stTxt, stCls, actHtml = '';
+    if (c.status === 'pending') {
+      stTxt = '待启动'; stCls = 'status-pending';
+      actHtml += '<button class="btn-start" data-act="start" data-name="' + escAttr(c.name) + '" title="启动">' + CAP_ICON_PLAY + '</button>';
+      actHtml += '<button class="btn-del" data-act="del" data-name="' + escAttr(c.name) + '" title="删除">' + CAP_ICON_DEL + '</button>';
+    } else if (c.status === 'running') {
+      stTxt = '正在抓包'; stCls = 'status-running';
+      actHtml += '<button class="btn-stop" data-act="end" data-name="' + escAttr(c.name) + '" title="结束（停止抓包，保留文件）">' + CAP_ICON_STOP + '</button>';
+      actHtml += '<button class="btn-del" data-act="del" data-name="' + escAttr(c.name) + '" title="删除">' + CAP_ICON_DEL + '</button>';
+    } else {
+      stTxt = '已结束'; stCls = 'status-ended';
+      actHtml += '<button class="btn-dl" data-act="dl" data-name="' + escAttr(c.name) + '" title="下载">' + CAP_ICON_DL + '</button>';
+      actHtml += '<button class="btn-del" data-act="del" data-name="' + escAttr(c.name) + '" title="删除">' + CAP_ICON_DEL + '</button>';
+    }
+    html += '<div class="capture-item">'
+      + '<div class="c-name" title="' + escAttr(c.name) + '">' + escHtml(c.name) + '</div>'
+      + '<div class="c-field">' + escHtml(c.addr || '-') + '</div>'
+      + '<div class="c-field">' + escHtml(c.port || '-') + '</div>'
+      + '<div class="c-field">' + (c.size_mb != null ? c.size_mb + ' MB' : '-') + '</div>'
+      + '<div class="c-field">' + fmtDuration(c.duration) + '</div>'
+      + '<span class="status-badge ' + stCls + '">' + stTxt + '</span>'
+      + '<div class="c-actions">' + actHtml + '</div>'
+      + '</div>';
+  });
+  body.innerHTML = html;
+}
+
+// 操作列事件委托（列表会整体重渲染，故只绑一次）
+document.getElementById('captureListBody').addEventListener('click', async function(e) {
+  var btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  var act = btn.getAttribute('data-act');
+  var name = btn.getAttribute('data-name');
+  if (act === 'start') await startCaptureTask(name);
+  else if (act === 'end') { if (confirm('确认结束抓包 ' + name + ' ？结束后将保留文件，可下载。')) await endCapture(name); }
+  else if (act === 'dl') downloadCaptureFile(name);
+  else if (act === 'del') { if (confirm('确认删除抓包任务 ' + name + ' ？')) await deleteCapture(name); }
+});
+
+// 启动一个「待启动」的任务
+async function startCaptureTask(name) {
+  try {
+    try {
+      var b = document.querySelector('button[data-act="start"][data-name="' + name + '"]');
+      if (b) { b.disabled = true; b.innerHTML = '<span class="spinner"></span>'; }
+    } catch(_) {}
+    var r = await api('capture_start', { session_id: sessionId, name: name });
+    if (!r.ok) alert('启动失败: ' + (r.error || ''));
+    refreshCaptureList();
+  } catch(e) { alert('启动异常: ' + e.message); refreshCaptureList(); }
+}
+
+// 结束一个正在抓包的任务（停止 tcpdump，保留文件 → 状态「已结束」）
+async function endCapture(name) {
+  try {
+    var r = await api('capture_end', { session_id: sessionId, name: name });
+    if (!r.ok) alert('结束失败: ' + (r.error || ''));
+    else refreshCaptureList();
+  } catch(e) { alert('结束异常: ' + e.message); }
+}
+
+async function deleteCapture(name) {
+  try {
+    var r = await api('capture_delete', { session_id: sessionId, name: name });
+    if (!r.ok) alert('删除失败: ' + (r.error || ''));
+    else refreshCaptureList();
+  } catch(e) { alert('删除异常: ' + e.message); }
+}
+
+async function downloadCaptureFile(name) {
+  if (!sessionId) return;
+  try {
+    var r = await fetch('/api/capture_download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, name: name })
+    });
+    if (r.ok) {
+      var blob = await r.blob();
+      var u = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = u;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(u);
+    } else {
+      var err = await r.json().catch(function() { return {}; });
+      alert('下载失败: ' + (err.error || r.status));
+    }
+  } catch(e) { alert('下载异常: ' + e.message); }
+}
+
+// ================================================================
+//  Context Menu
+// ================================================================
+function showCtxMenu(e, fp, name, isDir) {
+  e.preventDefault();
+  e.stopPropagation();
+  ctxTarget = { fp: fp, name: name, isDir: isDir };
+  var menu = document.getElementById('ctxMenu');
+  menu.classList.remove('hidden');
+  var x = e.clientX, y = e.clientY;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  requestAnimationFrame(function() {
+    var rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+    if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+  });
+}
+
+function hideCtxMenu() {
+  document.getElementById('ctxMenu').classList.add('hidden');
+  ctxTarget = null;
+}
+
+function ctxDownload() {
+  if (ctxTarget && !ctxTarget.isDir) {
+    fmDownloadFile(ctxTarget.fp);
+  }
+  hideCtxMenu();
+}
+
+function ctxDelete() {
+  if (ctxTarget) {
+    fmDelete(ctxTarget.fp, ctxTarget.name);
+  }
+  hideCtxMenu();
+}
+
+// Close context menu on click elsewhere
+document.addEventListener('click', function() { hideCtxMenu(); });
+
+async function fmDelete(fp, name) {
+  if (!confirm('确定删除 '+name+' ?')) return;
+  try {
+    var r = await fetch('/api/sftp_delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sessionId, path: fp }) });
+    var res = await r.json();
+    if (res.ok) { fmRefresh(); if(term) term.write('\r\n\x1b[36m[已删除] '+fp+'\x1b[0m\r\n'); }
+    else alert(res.error);
+  } catch(e) { alert(e.message); }
+}
+
+async function fmMkdir() {
+  var name = prompt('请输入文件夹名称:');
+  if (!name || !name.trim()) return;
+  var fp = fmCurrentPath.endsWith('/') ? fmCurrentPath+name.trim() : fmCurrentPath+'/'+name.trim();
+  try {
+    var r = await fetch('/api/sftp_mkdir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sessionId, path: fp }) });
+    var res = await r.json();
+    if (res.ok) { fmRefresh(); if(term) term.write('\r\n\x1b[36m[已创建] '+fp+'\x1b[0m\r\n'); }
+    else alert(res.error);
+  } catch(e) { alert(e.message); }
+}
+
+// ================================================================
+//  Transfer Progress Bar
+// ================================================================
+function showProgressBar(filename) {
+  var el = document.getElementById('fmProgress');
+  el.classList.remove('hidden');
+  document.getElementById('fmProgressName').textContent = filename;
+  document.getElementById('fmProgressDetail').textContent = '0%';
+  document.getElementById('fmProgressFill').style.width = '0%';
+  document.getElementById('fmProgressStatus').textContent = '准备中...';
+}
+
+function updateProgressBar(transferred, total, percent) {
+  var pct = (percent != null) ? percent : (total > 0 ? Math.round(transferred * 100 / total) : 0);
+  document.getElementById('fmProgressFill').style.width = pct + '%';
+  document.getElementById('fmProgressDetail').textContent = pct + '%';
+  var speed = '';
+  if (transferred > 0 && total > 0) {
+    speed = fmSize(transferred) + ' / ' + fmSize(total);
+  }
+  document.getElementById('fmProgressStatus').textContent = pct + '%' + (speed ? ' - ' + speed : '');
+}
+
+function hideProgressBar() {
+  document.getElementById('fmProgress').classList.add('hidden');
+  currentTransferId = null;
+}
+
+function genTransferId() {
+  return 't_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8);
+}
+
+// ================================================================
+//  Upload
+// ================================================================
+function fmTriggerUpload() {
+  if (!sessionId) { alert('请先连接服务器'); return; }
+  document.getElementById('fmFileInput').click();
+}
+
+function fmHandleUpload(inp) {
+  var f = inp.files[0];
+  if (!f) return;
+  pendingUploadFile = f;
+  var rp = fmCurrentPath.endsWith('/') ? fmCurrentPath+f.name : fmCurrentPath+'/'+f.name;
+  document.getElementById('uploadFileName').textContent = f.name;
+  document.getElementById('inputUploadPath').value = rp;
+  document.getElementById('uploadStatus').textContent = '';
+  document.getElementById('uploadModal').classList.remove('hidden');
+  inp.value = '';
+}
+
+function closeUploadModal() {
+  document.getElementById('uploadModal').classList.add('hidden');
+}
+
+function doUpload() {
+  if (!pendingUploadFile || !sessionId) return;
+  var rp = document.getElementById('inputUploadPath').value.trim();
+  if (!rp) { alert('请填写远程路径'); return; }
+
+  var theFile = pendingUploadFile;
+  var fileName = theFile.name;
+  var transferId = genTransferId();
+  currentTransferId = transferId;
+
+  // Close upload modal immediately so progress bar in FM is visible
+  closeUploadModal();
+  pendingUploadFile = null;
+
+  // Show progress bar in FM
+  showProgressBar(fileName);
+  document.getElementById('fmProgressStatus').textContent = '正在上传到服务器...';
+
+  var fd = new FormData();
+  fd.append('session_id', sessionId);
+  fd.append('remote_path', rp);
+  fd.append('file', theFile);
+  fd.append('transfer_id', transferId);
+
+  var xhr = new XMLHttpRequest();
+
+  xhr.upload.addEventListener('progress', function(e) {
+    if (e.lengthComputable) {
+      var pct = Math.round(e.loaded * 100 / e.total);
+      updateProgressBar(e.loaded, e.total, pct);
+      document.getElementById('fmProgressStatus').textContent = '上传中 ' + pct + '%';
+    }
+  });
+
+  xhr.onload = function() {
+    try {
+      var res = JSON.parse(xhr.responseText);
+      if (res.ok) {
+        updateProgressBar(1, 1, 100);
+        document.getElementById('fmProgressStatus').textContent = '上传完成';
+        if (term) term.write('\r\n\x1b[36m[上传成功] ' + fileName + ' -> ' + rp + '\x1b[0m\r\n');
+        fmRefresh();
+        setTimeout(hideProgressBar, 3000);
+        setTimeout(function() { if (socket && socket.connected) socket.emit('term-input', { data: '\n' }); }, 100);
+      } else {
+        document.getElementById('fmProgressStatus').textContent = '上传失败: ' + res.error;
+        if (term) term.write('\r\n\x1b[31m[上传失败] ' + res.error + '\x1b[0m\r\n');
+      }
+    } catch(e) {
+      document.getElementById('fmProgressStatus').textContent = '上传异常: ' + e.message;
+    }
+    currentTransferId = null;
+  };
+
+  xhr.onerror = function() {
+    document.getElementById('fmProgressStatus').textContent = '上传失败: 网络错误';
+    currentTransferId = null;
+  };
+
+  xhr.open('POST', '/api/upload');
+  xhr.send(fd);
+}
+
+// ================================================================
+//  Download
+// ================================================================
+function fmDownloadFile(fp) {
+  if (!sessionId) return;
+  var fn = fp.split('/').pop();
+  var transferId = genTransferId();
+  currentTransferId = transferId;
+
+  if (term) term.write('\r\n\x1b[36m[下载] ' + fn + '\x1b[0m\r\n');
+
+  showProgressBar(fn);
+  document.getElementById('fmProgressStatus').textContent = '正在从远程服务器下载...';
+
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/download');
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.responseType = 'blob';
+
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      var blob = xhr.response;
+      var cd = xhr.getResponseHeader('Content-Disposition') || '';
+      var n = fn;
+      var m = cd.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
+      if (m) n = decodeURIComponent(m[1].replace(/"/g, ''));
+      var u = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = u;
+      a.download = n;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(u);
+
+      updateProgressBar(1, 1, 100);
+      document.getElementById('fmProgressStatus').textContent = '下载完成';
+      if (term) term.write('\x1b[32m[下载完成] ' + n + '\x1b[0m\r\n');
+      setTimeout(hideProgressBar, 3000);
+      setTimeout(function() { if (socket && socket.connected) socket.emit('term-input', { data: '\n' }); }, 100);
+    } else {
+      var reader = new FileReader();
+      reader.onload = function() {
+        try {
+          var err = JSON.parse(reader.result);
+          var msg = err.error || '下载失败';
+          document.getElementById('fmProgressStatus').textContent = msg;
+          if (term) term.write('\x1b[31m[下载失败] ' + msg + '\x1b[0m\r\n');
+        } catch(e2) {
+          document.getElementById('fmProgressStatus').textContent = '下载失败';
+        }
+      };
+      reader.readAsText(xhr.response);
+    }
+    currentTransferId = null;
+  };
+
+  xhr.onerror = function() {
+    document.getElementById('fmProgressStatus').textContent = '网络错误';
+    if (term) term.write('\x1b[31m[下载失败] 网络错误\x1b[0m\r\n');
+    currentTransferId = null;
+  };
+
+  xhr.send(JSON.stringify({ session_id: sessionId, remote_path: fp, transfer_id: transferId }));
+}
+
+// ================================================================
+//  Keyboard Shortcuts
+// ================================================================
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') { closeLevel2Modal(); closeUploadModal(); closeCaptureMgmt(); closeNewCapture(); hideCtxMenu(); }
+  if (e.key === 'Enter') {
+    if (!document.getElementById('level2Modal').classList.contains('hidden')) doLevel2();
+    else if (!document.getElementById('uploadModal').classList.contains('hidden')) doUpload();
+  }
+  if (e.key === 'Delete' && ctxTarget && !ctxTarget.isDir) {
+    fmDelete(ctxTarget.fp, ctxTarget.name);
+    hideCtxMenu();
+  }
+});
+document.getElementById('inputPass').addEventListener('keydown', function(e) { if (e.key === 'Enter') doConnect(); });
+
+// ================================================================
+//  CDN Load Check
+// ================================================================
+window.addEventListener('load', function() {
+  setTimeout(function() {
+    if (typeof Terminal === 'undefined') {
+      document.body.insertAdjacentHTML('afterbegin',
+        '<div style="background:#8b2020;color:#fff;padding:10px 20px;text-align:center;font-size:14px;z-index:9999;position:fixed;top:0;left:0;right:0">' +
+        '终端组件加载失败，请检查网络连接后刷新页面</div>');
+    }
+  }, 3000);
+});
+
+function openFeedback() {
+  document.getElementById('feedbackLayer').classList.remove('hidden');
+}
+function closeFeedback() {
+  document.getElementById('feedbackLayer').classList.add('hidden');
+}
+
+</script>
+
+<!-- 建议反馈二维码弹窗 -->
+<div class="cap-layer hidden" id="feedbackLayer" style="z-index:1000">
+  <div class="capture-new-card" style="width:360px;text-align:center">
+    <div style="font-size:18px;font-weight:700;color:#e6edf3;margin-bottom:14px">建议反馈</div>
+    <p style="color:#8b949e;font-size:12px;margin:0 0 16px;line-height:1.6">期待您扫码提交功能建议、问题反馈与使用体验，<br>我们会定期汇总评估，持续优化改进</p>
+    <img src="/static/img/feedback_qr.png" style="width:260px;height:265px;border-radius:8px;background:#fff;padding:8px">
+    <div style="margin-top:18px">
+      <button class="btn btn-secondary" onclick="closeFeedback()">关闭</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
