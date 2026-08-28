@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='ParkTerm_V2.0.7',
+    name='ParkTerm_V2.0.12',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

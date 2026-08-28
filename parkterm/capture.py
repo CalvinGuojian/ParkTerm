@@ -167,20 +167,28 @@ class CaptureManager:
     # 状态构建（带缓存）
     # ============================================================
     def _scan_disk(self):
-        """扫描磁盘上的 .pcap 文件，添加到内存状态中（用于展示历史抓包）。"""
+        """扫描远程SSH设备上的 .pcap 文件，添加到内存状态中（用于展示历史抓包）。"""
         try:
-            out = self.session.run_command(
-                f"ls -1 {config.CAPTURE_DIR}/ParkTerm_*.pcap 2>/dev/null", timeout=8
-            )
+            # 使用 SSH 命令扫描远程设备上的抓包文件
+            cmd = f"ls -1 {config.CAPTURE_DIR}/ParkTerm_*.pcap 2>/dev/null || true"
+            out = self.session.run_command(cmd, timeout=10)
+            
+            if not out or not out.strip():
+                logger.debug("_scan_disk: no capture files found")
+                return
+            
             for line in out.strip().split("\n"):
                 line = line.strip()
                 if not line or not line.endswith(".pcap"):
                     continue
-                name = line.split("/")[-1]
-                if name not in self._captures:
-                    self._captures[name] = {
+                # 从完整路径中提取文件名
+                filename = line.split("/")[-1]
+                if not filename.startswith("ParkTerm_"):
+                    continue
+                if filename not in self._captures:
+                    self._captures[filename] = {
                         "pid": 0,  # 0表示历史文件，已结束
-                        "path": f"{config.CAPTURE_DIR}/{name}",
+                        "path": f"{config.CAPTURE_DIR}/{filename}",
                         "addr": "",
                         "port": "",
                         "size_mb": 0,
@@ -189,8 +197,9 @@ class CaptureManager:
                         "ended": time.time(),
                         "running": False,
                     }
-        except Exception:
-            pass
+                    logger.debug("Found historical capture file: %s", filename)
+        except Exception as e:
+            logger.warning("_scan_disk failed: %s", e)
 
     def _build_records(self, force=False):
         """从内存状态构建抓包列表。状态精确为 pending/running/ended。"""
@@ -206,10 +215,19 @@ class CaptureManager:
             for name, st in list(self._captures.items()):
                 pid = st.get("pid")
                 path = f"{config.CAPTURE_DIR}/{name}"
-                if not pid:
+                # 状态判断逻辑：
+                # - pid is None: 待启动（新建任务但未启动）
+                # - pid == 0: 历史文件（已结束）
+                # - pid > 0: 运行中或已结束（需检查进程存活状态）
+                if pid is None:
                     status = "pending"
                     size = 0
                     elapsed = None
+                elif pid == 0:
+                    # 历史文件，状态为已结束
+                    status = "ended"
+                    size = self._file_size(path)
+                    elapsed = st.get("ended") - st.get("started") if st.get("started") else None
                 else:
                     if st.get("ended") is not None:
                         status = "ended"

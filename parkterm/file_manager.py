@@ -419,48 +419,80 @@ class FileManager:
     # base64-over-exec 传输回退（最后手段）
     # ============================================================
     def _exec_upload_base64(self, local_path, remote_path, transfer_id=None):
+        """分块上传：避免大文件一次性加载到内存。"""
         transport = self.session.cmd_transport()
         if not transport:
             raise RuntimeError("无可用文件连接")
         total = os.path.getsize(local_path)
         if total > config.BASE64_UPLOAD_WARN_SIZE:
             logger.warning("_exec_upload_base64: %d bytes > 30MB, may be slow", total)
-        with open(local_path, "rb") as f:
-            raw = f.read()
-        b64 = base64.b64encode(raw)
+
         chan = transport.open_session()
-        chan.settimeout(180)
+        chan.settimeout(300)  # 增大超时以适应大文件
         chan.exec_command(f"base64 -d > {_quote(remote_path)}")
+
+        # 分块读取并编码传输，避免内存溢出
+        chunk_size = 64 * 1024  # 64KB 原始数据块
         step = config.BASE64_UPLOAD_CHUNK
+        sent_bytes = 0
         try:
-            for i in range(0, len(b64), step):
-                chan.sendall(b64[i:i + step])
-                self._emit_progress(
-                    transfer_id,
-                    int(min(i + step, len(b64)) / 4 * 3),
-                    total,
-                )
+            with open(local_path, "rb") as f:
+                while True:
+                    raw_chunk = f.read(chunk_size)
+                    if not raw_chunk:
+                        break
+                    b64_chunk = base64.b64encode(raw_chunk)
+                    chan.sendall(b64_chunk)
+                    sent_bytes += len(raw_chunk)
+                    self._emit_progress(transfer_id, sent_bytes, total)
             chan.shutdown_write()
         finally:
             chan.close()
         self._emit_progress(transfer_id, total, total)
 
     def _exec_download_base64(self, remote_path, local_path, transfer_id=None):
+        """分块下载：边接收边解码写入文件，避免大文件占用大量内存。"""
         transport = self.session.cmd_transport()
         if not transport:
             raise RuntimeError("无可用文件连接")
+
         chan = transport.open_session()
         chan.settimeout(config.BASE64_DOWNLOAD_TIMEOUT)
         chan.exec_command(f"base64 {_quote(remote_path)}")
-        data = b""
-        while True:
-            chunk = chan.recv(65536)
-            if not chunk:
-                break
-            data += chunk
-        chan.close()
-        raw = base64.b64decode(data.replace(b"\r", b"").replace(b"\n", b""))
+
+        # 边接收边解码，避免大文件内存溢出
+        local_dir = os.path.dirname(local_path) or "."
+        os.makedirs(local_dir, exist_ok=True)
+
+        received_bytes = 0
         with open(local_path, "wb") as f:
-            f.write(raw)
-        self._emit_progress(transfer_id, len(raw), len(raw))
-        return len(raw)
+            buffer = b""
+            while True:
+                chunk = chan.recv(65536)
+                if not chunk:
+                    break
+                buffer += chunk
+                received_bytes += len(chunk)
+
+                # 当缓冲区积累足够数据时批量解码（约 256KB 原始数据对应约 340KB base64）
+                while len(buffer) >= 340000:
+                    # 找到最近的换行符位置进行对齐
+                    nl_pos = buffer.rfind(b"\n") + 1
+                    if nl_pos > 0:
+                        decode_chunk = base64.b64decode(buffer[:nl_pos])
+                        f.write(decode_chunk)
+                        buffer = buffer[nl_pos:]
+                    else:
+                        break
+
+            # 处理剩余的缓冲区数据
+            if buffer:
+                clean_buffer = buffer.replace(b"\r", b"").replace(b"\n", b"")
+                if clean_buffer:
+                    decode_chunk = base64.b64decode(clean_buffer)
+                    f.write(decode_chunk)
+                    received_bytes += len(decode_chunk)
+
+        chan.close()
+        self._emit_progress(transfer_id, received_bytes, received_bytes)
+        return received_bytes

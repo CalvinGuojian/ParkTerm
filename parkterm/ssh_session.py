@@ -70,6 +70,12 @@ class SSHSession:
     # ============================================================
     # 连接管理
     # ============================================================
+    def _clear_password(self):
+        """清除明文密码，降低内存泄漏风险。连接成功后将不再保留明文。"""
+        if hasattr(self, "password") and self.password:
+            self.password = None
+            logger.debug("Password cleared from memory")
+
     def connect(self):
         """建立 SSH 连接并调用交互式 shell。"""
         logger.info("Connecting to %s:%s as %s", self.host, self.port, self.username)
@@ -91,6 +97,9 @@ class SSHSession:
 
         self.connected = True
         logger.info("Connected to %s:%s, shell invoked", self.host, self.port)
+
+        # 连接成功后立即清除明文密码，降低内存泄漏风险
+        self._clear_password()
 
     def _make_client(self):
         """创建并返回一个已连接的 SSH 客户端（标准或 raw socket 回退）。
@@ -147,7 +156,7 @@ class SSHSession:
                         time.sleep(0.05)
                         continue
                     if self.channel and self.channel.recv_ready():
-                        chunk = self.channel.recv(4096)
+                        chunk = self.channel.recv(config.STREAM_READ_CHUNK)
                         if chunk:
                             if not self.suppress_output:
                                 data = chunk.decode("utf-8", errors="replace")
@@ -209,7 +218,7 @@ class SSHSession:
     def _drain_channel(self):
         """读取并丢弃 channel 中待处理的输出。"""
         while self.channel and self.channel.recv_ready():
-            self.channel.recv(65536)
+            self.channel.recv(config.CMD_READ_CHUNK)
             time.sleep(0.01)
 
     def run_command(self, cmd, timeout=None):
@@ -231,7 +240,7 @@ class SSHSession:
                 t0 = time.time()
                 while time.time() - t0 < timeout:
                     if self.channel and self.channel.recv_ready():
-                        chunk = self.channel.recv(65536)
+                        chunk = self.channel.recv(config.CMD_READ_CHUNK)
                         if chunk:
                             buf += chunk
                             text_check = buf.decode("utf-8", errors="replace")
@@ -244,7 +253,7 @@ class SSHSession:
                     time.sleep(0.05)
                 time.sleep(config.CMD_POST_WAIT)
                 if self.channel and self.channel.recv_ready():
-                    buf += self.channel.recv(65536)
+                    buf += self.channel.recv(config.CMD_READ_CHUNK)
 
                 text = buf.decode("utf-8", errors="replace")
                 logger.debug("run_command '%s' raw output: %r", cmd, text[:500])
@@ -281,7 +290,7 @@ class SSHSession:
                 t0 = time.time()
                 while time.time() - t0 < timeout:
                     if chan.recv_ready():
-                        chunk = chan.recv(65536)
+                        chunk = chan.recv(config.CMD_READ_CHUNK)
                         if chunk:
                             buf += chunk
                         else:
@@ -289,7 +298,7 @@ class SSHSession:
                     elif chan.exit_status_ready():
                         # 读取剩余输出
                         while chan.recv_ready():
-                            chunk = chan.recv(65536)
+                            chunk = chan.recv(config.CMD_READ_CHUNK)
                             if chunk:
                                 buf += chunk
                         break
@@ -361,7 +370,7 @@ class SSHSession:
                 t0 = time.time()
                 while time.time() - t0 < config.LEVEL2_RESPONSE_WAIT:
                     if self.channel and self.channel.recv_ready():
-                        buf += self.channel.recv(65536)
+                        buf += self.channel.recv(config.CMD_READ_CHUNK)
                     else:
                         time.sleep(0.1)
                 text = strip_ansi(buf.decode("utf-8", errors="replace"))
@@ -439,6 +448,30 @@ class SSHSession:
         return info
 
     # ============================================================
+    # 文件传输专用连接池
+    # ============================================================
+    def get_file_transfer_client(self):
+        """
+        获取用于文件传输的专用 SSH 客户端。
+        优先复用现有连接，失败时创建新连接。
+        避免文件传输操作干扰主 shell 连接。
+        """
+        # 优先使用主连接（已通过 keepalive 保活）
+        if self.connected and self.client:
+            transport = self.client.get_transport()
+            if transport and transport.is_active():
+                return self.client
+
+        # 主连接不可用，尝试重建新连接
+        logger.debug("Creating new file transfer connection to %s", self.host)
+        try:
+            new_client = self._make_client()
+            return new_client
+        except Exception as e:
+            logger.error("Failed to create file transfer connection: %s", e)
+            return None
+
+    # ============================================================
     # 文件操作专用连接
     # ============================================================
     def get_fs_client(self):
@@ -504,7 +537,7 @@ class SSHSession:
             stdout = b""
             while True:
                 try:
-                    chunk = chan.recv(65536)
+                    chunk = chan.recv(config.CMD_READ_CHUNK)
                 except Exception:
                     break
                 if not chunk:
@@ -513,7 +546,7 @@ class SSHSession:
             stderr = b""
             try:
                 while chan.recv_stderr_ready():
-                    stderr += chan.recv_stderr(65536)
+                    stderr += chan.recv_stderr(config.CMD_READ_CHUNK)
             except Exception:
                 pass
             return (

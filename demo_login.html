@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ParkTerm - 登录界面</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1d23;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+
+/* Login Container */
+.login-wrap{width:460px;max-width:95vw}
+
+/* Login Card */
+.login-card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:32px;box-shadow:0 16px 48px rgba(0,0,0,.4)}
+
+/* Logo */
+.login-logo{display:flex;align-items:center;gap:10px;margin-bottom:24px}
+.login-logo img{width:28px;height:28px}
+.login-logo span{font-size:18px;font-weight:700;color:#e6edf3}
+
+/* Tab Switch */
+.tab-switch{display:flex;gap:0;margin-bottom:24px;background:#0d1117;border-radius:8px;padding:4px}
+.tab-btn{flex:1;padding:10px 20px;background:transparent;border:none;color:#8b949e;font-size:14px;font-weight:500;cursor:pointer;border-radius:6px;transition:all .2s}
+.tab-btn.active{background:#21262d;color:#e6edf3}
+.tab-btn:hover:not(.active){color:#c9d1d9}
+
+/* Tab Content - Fixed Height Container */
+.tab-content{min-height:320px}
+
+/* Form */
+.login-form{display:flex;flex-direction:column;gap:14px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:11px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:.5px;height:18px;display:flex;align-items:center}
+.form-group input,.form-group select{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 12px;color:#c9d1d9;font-size:14px;outline:none;transition:border-color .2s,box-shadow .2s;height:40px;line-height:20px}
+.form-group input::placeholder{color:#6e7681}
+.form-group input:focus,.form-group select:focus{border-color:#58a6ff;box-shadow:0 0 0 2px rgba(88,166,255,.15)}
+.form-group select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236e7681' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+
+/* Buttons */
+.btn{padding:10px 16px;border:1px solid #30363d;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;transition:all .15s;height:40px;display:inline-flex;align-items:center;justify-content:center}
+.btn-primary{background:linear-gradient(135deg,#3b82f6 0%,#2563eb 100%);color:#fff;border-color:#2563eb}
+.btn-primary:hover{box-shadow:0 4px 12px rgba(59,130,246,.35);transform:translateY(-1px)}
+
+/* Tooltip */
+.tooltip-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:4px;border-radius:50%;background:#30363d;color:#8b949e;font-size:11px;font-weight:700;cursor:help;position:relative;vertical-align:middle;flex-shrink:0}
+.tooltip-icon:hover{background:#58a6ff;color:#fff}
+.tooltip-icon .tooltip-text{visibility:hidden;opacity:0;position:absolute;bottom:150%;left:50%;transform:translateX(-50%);background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px 14px;font-size:12px;color:#c9d1d9;white-space:nowrap;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.tooltip-icon:hover .tooltip-text{visibility:visible;opacity:1}
+
+/* Version Badge */
+.version-badge{position:fixed;bottom:20px;right:20px;font-size:11px;color:#6e7681;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:6px 12px}
+</style>
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="data:image/png;base64,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" style="width:28px;height:28px">
+      <span>ParkTerm</span>
+    </div>
+    
+    <!-- Tab Switch -->
+    <div class="tab-switch">
+      <button class="tab-btn active" onclick="switchTab(this, 'ssh-tab')">SSH 连接</button>
+      <button class="tab-btn" onclick="switchTab(this, 'serial-tab')">串口连接</button>
+    </div>
+    
+    <!-- SSH Tab -->
+    <div id="ssh-tab" class="tab-content">
+      <div class="login-form">
+        <div class="form-group">
+          <label>地址</label>
+          <input type="text" placeholder="192.168.1.60" value="192.168.1.60">
+        </div>
+        <div class="form-group">
+          <label>端口 <i class="tooltip-icon">?<span class="tooltip-text">VMS-U产品端口说明：<br>1.3.7.P02 以前版本默认端口 <strong>22</strong><br>1.3.7.P02 及以后版本默认端口 <strong>23333</strong></span></i></label>
+          <input type="number" value="23333">
+        </div>
+        <div class="form-group">
+          <label>用户名</label>
+          <input type="text" placeholder="root" value="root">
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input type="password" placeholder="请输入密码">
+        </div>
+        <button class="btn btn-primary" style="width:100%;margin-top:6px">连 接</button>
+      </div>
+    </div>
+    
+    <!-- Serial Tab -->
+    <div id="serial-tab" class="tab-content" style="display:none">
+      <div class="login-form">
+        <div class="form-group">
+          <label>串口</label>
+          <select>
+            <option value="">请选择串口...</option>
+            <option value="COM1">COM1</option>
+            <option value="COM2" selected>COM2</option>
+            <option value="COM3">COM3</option>
+            <option value="/dev/ttyUSB0">/dev/ttyUSB0</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>波特率 <i class="tooltip-icon">?<span class="tooltip-text">宇视设备常用波特率：<strong>115200</strong><br>其他常用：9600, 19200, 38400</span></i></label>
+          <select>
+            <option value="9600">9600</option>
+            <option value="19200">19200</option>
+            <option value="38400">38400</option>
+            <option value="57600">57600</option>
+            <option value="115200" selected>115200</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>数据位 <i class="tooltip-icon">?<span class="tooltip-text">宇视设备推荐：<strong>8</strong> 位</span></i></label>
+            <select>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8" selected>8</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>流控</label>
+            <select>
+              <option value="N" selected>None</option>
+              <option value="RTS/CTS">RTS/CTS</option>
+              <option value="XON/XOFF">XON/XOFF</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>校验位 <i class="tooltip-icon">?<span class="tooltip-text">宇视设备推荐：<strong>None</strong>（无校验）</span></i></label>
+            <select>
+              <option value="N" selected>None</option>
+              <option value="E">Even</option>
+              <option value="O">Odd</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>停止位 <i class="tooltip-icon">?<span class="tooltip-text">宇视设备推荐：<strong>1</strong> 位</span></i></label>
+            <select>
+              <option value="1" selected>1</option>
+              <option value="1.5">1.5</option>
+              <option value="2">2</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" style="width:100%;margin-top:6px">连 接</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="version-badge">ParkTerm V2.0.12</div>
+
+<script>
+function switchTab(btn, tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+  document.getElementById(tabId).style.display = 'block';
+}
+</script>
+
+</body>
+</html>
