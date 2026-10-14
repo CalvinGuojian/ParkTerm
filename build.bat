@@ -1,16 +1,16 @@
 @echo off
 chcp 65001 >nul
 echo ========================================
-echo   ParkTerm v1.0.5 - Build Script
+echo   ParkTerm v1.0.6 - Build Script
 echo ========================================
 
-pyinstaller ParkTerm_V1.0.5.spec --noconfirm
+pyinstaller ParkTerm_V1.0.6.spec --noconfirm
 
-if exist "dist\ParkTerm_V1.0.5.exe" (
+if exist "dist\ParkTerm_V1.0.6.exe" (
   echo.
   echo ========================================
   echo   Build Successful!
-  echo EXE: dist\ParkTerm_V1.0.5.exe
+  echo EXE: dist\ParkTerm_V1.0.6.exe
   echo ========================================
 ) else (
   echo.

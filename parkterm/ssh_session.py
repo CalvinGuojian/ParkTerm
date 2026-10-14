@@ -378,8 +378,10 @@ class SSHSession:
     def _read_until_marker(self, marker, timeout=3.0):
         """读取通道输出直到出现指定标志或超时。
 
+        marker 可以是单个字符串或字符串列表（任一匹配即返回）。
         返回 (buf, found)：found=True 表示匹配到 marker。
         """
+        markers = marker if isinstance(marker, list) else [marker]
         buf = b""
         t0 = time.time()
         while time.time() - t0 < timeout:
@@ -390,7 +392,8 @@ class SSHSession:
                     break
                 if chunk:
                     buf += chunk
-                    if marker in buf.decode("utf-8", errors="replace"):
+                    text = buf.decode("utf-8", errors="replace")
+                    if any(m in text for m in markers):
                         return buf, True
             else:
                 time.sleep(0.03)
@@ -448,11 +451,12 @@ class SSHSession:
                 # VMS-B 旧版本：login 后直接输入二级密码并回车
                 if self._is_vmsb_legacy_version():
                     logger.info("Using legacy VMS-B level2 flow (login → password)")
-                    # 等待 Passwd: 提示（旧版本 login 后直接出密码提示）
-                    buf, found_pass = self._read_until_marker("Passwd:", 3.0)
+                    # 等待密码提示（旧版本可能返回 Passwd:/Password:/passwd: 等变体）
+                    buf, found_pass = self._read_until_marker(
+                        ["Passwd:", "Password:", "password:", "passwd:"], 3.0)
                     if not found_pass and password:
-                        text = strip_ansi(buf.decode("utf-8", errors="replace"))
-                        return {"ok": False, "output": f"未收到 Passwd 提示: {text[:200]}"}
+                        # 旧版本可能不返回提示直接等待输入，超时后直接发送密码
+                        logger.warning("legacy VMS-B: no password prompt, sending password directly")
                     if password:
                         self.send(password + "\n")
                 else:

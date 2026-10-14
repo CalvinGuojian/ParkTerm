@@ -1,6 +1,6 @@
 {
-  "version": "v1.0.5",
-  "url": "https://github.com/CalvinGuojian/ParkTerm/releases/download/v1.0.5/ParkTerm_V1.0.5.exe",
-  "changelog": "当前版本，暂无更新",
+  "version": "v1.0.6",
+  "url": "https://github.com/CalvinGuojian/ParkTerm/releases/download/v1.0.6/ParkTerm_V1.0.6.exe",
+  "changelog": "1. 修复 VMS-B 27.22 旧版本二级登录失败问题（兼容 Password:/Passwd: 多种提示）\n2. 修复切换连接标签后文件管理面板自动解锁的问题\n3. 新增自动更新功能（启动检查 + 手动检查 + 强制更新）\n4. 优化更新检查速度（jsDelivr CDN 加速 + ghproxy 下载代理）",
   "forceUpdate": false
 }
