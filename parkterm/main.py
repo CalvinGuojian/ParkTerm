@@ -20,6 +20,9 @@ import time
 import webbrowser
 import warnings
 
+# 在导入 paramiko 等第三方库之前抑制 DeprecationWarning，避免控制台打印警告信息
+warnings.filterwarnings("ignore")
+
 import paramiko
 
 from . import config
@@ -49,12 +52,19 @@ def setup_logging():
     # 避免重复添加 handler（多次调用时）
     if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
         root.addHandler(handler)
+    # 防止日志消息传播到 root logger，避免在控制台打印 WARNING 等
+    root.propagate = False
 
     # 抑制库日志噪音
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
     logging.getLogger("socketio").setLevel(logging.ERROR)
     logging.getLogger("engineio").setLevel(logging.ERROR)
     logging.getLogger("paramiko").setLevel(logging.WARNING)
+    # 防止库日志传播到 root logger 的 last-resort handler 打印到 stderr
+    for _name in ("werkzeug", "socketio", "engineio", "paramiko"):
+        logging.getLogger(_name).propagate = False
+    # 添加 NullHandler 到 root logger，彻底防止 last-resort handler 打印到控制台
+    logging.getLogger().addHandler(logging.NullHandler())
 
     warnings.filterwarnings("ignore")
     return log_path
@@ -75,7 +85,7 @@ def init_legacy_ssh():
 # Werkzeug 横幅抑制
 # ============================================================
 class _BannerStripper(io.TextIOBase):
-    """包装 sys.stdout/stderr，丢弃包含 Werkzeug 启动横幅的完整行。"""
+    """包装 sys.stdout，丢弃包含 Werkzeug 启动横幅的完整行。"""
 
     _TARGETS = ("Serving Flask app", "Debug mode")
 
@@ -108,12 +118,26 @@ class _BannerStripper(io.TextIOBase):
         self._stream.flush()
 
 
+class _DevNull(io.TextIOBase):
+    """黑洞流：吞掉所有写入，防止任何内容打印到控制台 stderr。"""
+    def write(self, text):
+        return len(text)
+    def flush(self):
+        pass
+
+
 def suppress_werkzeug_banner():
-    """抑制 Werkzeug 启动横幅（"Serving Flask app" / "Debug mode"）。"""
+    """抑制 Werkzeug 启动横幅，并将 stderr 替换为黑洞流。
+
+    stdout 用 _BannerStripper 过滤 Werkzeug 横幅行；
+    stderr 用 _DevNull 黑洞流彻底吞掉所有输出，
+    防止 WARNING/ERROR 等日志打印到 PowerShell 控制台。
+    所有错误信息仅写入 parkterm.log 日志文件。
+    """
     if sys.stdout is not None and not isinstance(sys.stdout, _BannerStripper):
         sys.stdout = _BannerStripper(sys.stdout)
-    if sys.stderr is not None and not isinstance(sys.stderr, _BannerStripper):
-        sys.stderr = _BannerStripper(sys.stderr)
+    if sys.stderr is not None and not isinstance(sys.stderr, _DevNull):
+        sys.stderr = _DevNull()
 
     # belt-and-suspenders：logging filter
     wz = logging.getLogger("werkzeug")
@@ -141,7 +165,7 @@ def find_free_port(start=None, end=None):
                 return port
             except OSError:
                 continue
-    return start
+    raise RuntimeError(f"端口 {start}-{end} 范围内无可用端口")
 
 
 def wait_port(port, timeout=None):
@@ -160,17 +184,11 @@ def wait_port(port, timeout=None):
 # 主入口
 # ============================================================
 def main():
-    suppress_werkzeug_banner()
-    log_path = setup_logging()
-    init_legacy_ssh()
+    # 保存原始 stdout/stderr（在 BannerStripper 包装之前）
+    _orig_stdout = sys.stdout
+    _orig_stderr = sys.stderr
 
-    port = find_free_port()
-    url = f"http://{config.BIND_HOST}:{port}"
-
-    # 启动会话清理线程
-    store.start_cleanup_thread()
-
-    # 控制台启动动画
+    # 立即启动控制台动画（用原始 stdout，避免被 BannerStripper 缓冲影响 \r 刷新）
     stop_anim = threading.Event()
 
     def animate():
@@ -178,12 +196,37 @@ def main():
         try:
             while not stop_anim.is_set():
                 dots = "." * (i % 4)
-                sys.stdout.write("\rParkTerm启动中" + dots + "    ")
-                sys.stdout.flush()
+                _orig_stdout.write("\rParkTerm 启动中" + dots + "    ")
+                _orig_stdout.flush()
                 time.sleep(0.4)
                 i += 1
         except Exception:
             pass
+
+    anim_t = threading.Thread(target=animate, daemon=True)
+    anim_t.start()
+
+    # 动画期间静默完成初始化
+    suppress_werkzeug_banner()
+    log_path = setup_logging()
+    init_legacy_ssh()
+
+    # 捕获未处理异常，写入日志文件而非打印到控制台
+    def _excepthook(exc_type, exc_value, exc_tb):
+        logger.error("未处理异常", exc_info=(exc_type, exc_value, exc_tb))
+    sys.excepthook = _excepthook
+
+    try:
+        port = find_free_port()
+    except RuntimeError as e:
+        stop_anim.set()
+        anim_t.join(timeout=1)
+        _orig_stderr.write(f"\n启动失败：{e}\n请检查端口占用或联系管理员。\n")
+        _orig_stderr.flush()
+        return
+    url = f"http://{config.BIND_HOST}:{port}"
+
+    store.start_cleanup_thread()
 
     def run_server():
         socketio.run(
@@ -195,8 +238,6 @@ def main():
             use_reloader=False,
         )
 
-    anim_t = threading.Thread(target=animate, daemon=True)
-    anim_t.start()
     srv_t = threading.Thread(target=run_server, daemon=True)
     srv_t.start()
 
@@ -205,16 +246,23 @@ def main():
     anim_t.join(timeout=1)
 
     # 清除动画行
-    sys.stdout.write("\r" + " " * 40 + "\r")
-    sys.stdout.flush()
+    _orig_stdout.write("\r" + " " * 40 + "\r")
+    _orig_stdout.flush()
 
     if ok:
-        print(f"ParkTerm 已启动  (版本 {config.VERSION})", flush=True)
-        print(f"访问地址: {url}", flush=True)
-        print(f"日志文件: {log_path}", flush=True)
-        print("请勿关闭此窗口。按 Ctrl+C 退出。", flush=True)
+        # 用原始 stdout 打印，格式清晰，避免被误认为报错
+        _orig_stdout.write("\n")
+        _orig_stdout.write("=" * 52 + "\n")
+        _orig_stdout.write(f"  ParkTerm 已启动\n")
+        _orig_stdout.write(f"  版本: {config.VERSION}\n")
+        _orig_stdout.write(f"  地址: {url}\n")
+        _orig_stdout.write(f"  日志: {log_path}\n")
+        _orig_stdout.write("=" * 52 + "\n")
+        _orig_stdout.write("  请勿关闭此窗口，按 Ctrl+C 退出。\n\n")
+        _orig_stdout.flush()
     else:
-        print("警告：Web 服务未能在预期时间内启动，请查看日志。")
+        _orig_stderr.write("警告：Web 服务未能在预期时间内启动，请查看日志。\n")
+        _orig_stderr.flush()
 
     logger.info("ParkTerm %s starting on %s", config.VERSION, url)
     logger.info("Log file: %s", log_path)

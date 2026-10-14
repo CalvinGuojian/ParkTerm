@@ -2,6 +2,7 @@ flask>=3.0
 flask-socketio>=5.3
 simple-websocket>=1.0
 paramiko>=3.4,<4
+pyserial>=3.5
 scp>=0.14
 appdirs>=1.4
 pyinstaller>=6.0

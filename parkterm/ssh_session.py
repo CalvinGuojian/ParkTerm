@@ -44,11 +44,12 @@ def strip_ansi(text):
 class SSHSession:
     """单个 SSH 会话，管理一条交互式 shell 连接 + 一条文件操作专用连接。"""
 
-    def __init__(self, host, port, username, password):
+    def __init__(self, host, port, username, password, server_type=''):
         self.host = host
         self.port = int(port)
         self.username = username
         self.password = password
+        self.server_type = server_type
         self.client = None
         self.channel = None
         self.connected = False
@@ -60,10 +61,13 @@ class SSHSession:
         self.capturing = False
         # 二级权限进入时，通知正在进行的 device_info 中止
         self.device_info_abort = False
+        # 设备版本号（get_device_info 时填充，enter_level2 据此判断进入方式）
+        self.device_version = ""
         # 文件操作专用连接
         self.fs_client = None
         self.fs_lock = threading.Lock()
         self.fs_connected = False
+        self.fs_not_supported = False  # 设备不支持专用连接时置 True，不再重试
         # 流式输出线程引用
         self._stream_thread = None
 
@@ -97,9 +101,9 @@ class SSHSession:
 
         self.connected = True
         logger.info("Connected to %s:%s, shell invoked", self.host, self.port)
-
-        # 连接成功后立即清除明文密码，降低内存泄漏风险
-        self._clear_password()
+        # 注意：不在此处清除密码，因为 get_fs_client() 创建专用文件操作连接时
+        # 仍需 _make_client() 使用 self.password 进行认证。
+        # 密码在 close() 时统一清除。
 
     def _make_client(self):
         """创建并返回一个已连接的 SSH 客户端（标准或 raw socket 回退）。
@@ -145,12 +149,27 @@ class SSHSession:
         会产生竞态（_reader 阻塞在 recv 上时，run_command 设置 capturing=True
         并读取 channel，设备输出可能被 _reader 先读走）。轮询模式下
         capturing=True 时线程直接 sleep，绝不触碰 channel，无竞态。
+
+        重连安全：每次调用设置新 socket_id，旧 reader 线程检测到 sid 不匹配后自动退出。
         """
         self.socket_id = sid
+        self._stream_socketio = socketio
 
         def _reader():
+            _last_activity_tick = time.time()
             while self.connected:
                 try:
+                    # sid 不匹配说明已重连，旧线程自动退出
+                    if self.socket_id != sid:
+                        logger.debug("Old reader thread exiting (socket reassociated)")
+                        break
+
+                    # 定期更新 last_activity，防止空闲清理误杀会话
+                    now = time.time()
+                    if now - _last_activity_tick > 10:
+                        self.last_activity = now
+                        _last_activity_tick = now
+
                     # run_command 活跃期间不触碰 channel
                     if self.capturing:
                         time.sleep(0.05)
@@ -182,6 +201,16 @@ class SSHSession:
         self._stream_thread = threading.Thread(target=_reader, daemon=True)
         self._stream_thread.start()
 
+    def detach_socket(self):
+        """Socket.IO 断连时调用：停止流式推送但保持 SSH 连接活跃。
+
+        不关闭 SSH channel/client，仅解除 socket 关联。
+        客户端重连后通过 term-init 重新关联并恢复流式推送。
+        """
+        self.socket_id = None
+        self._stream_socketio = None
+        logger.debug("Socket detached, SSH connection kept alive")
+
     # ============================================================
     # 输入 / 调整大小
     # ============================================================
@@ -202,6 +231,7 @@ class SSHSession:
 
     def close(self):
         self.connected = False
+        self.close_sftp()
         for attr in ("channel", "client", "fs_client"):
             obj = getattr(self, attr, None)
             if obj:
@@ -211,15 +241,19 @@ class SSHSession:
                     pass
         self.fs_connected = False
         self.fs_client = None
+        # 连接关闭后清除明文密码，降低内存泄漏风险
+        self._clear_password()
 
     # ============================================================
     # 命令执行
     # ============================================================
     def _drain_channel(self):
-        """读取并丢弃 channel 中待处理的输出。"""
-        while self.channel and self.channel.recv_ready():
+        """读取并丢弃 channel 中待处理的输出（最多 100 次迭代防止无限循环）。"""
+        _max = 100
+        while self.channel and self.channel.recv_ready() and _max > 0:
             self.channel.recv(config.CMD_READ_CHUNK)
             time.sleep(0.01)
+            _max -= 1
 
     def run_command(self, cmd, timeout=None):
         """通过交互式 shell 发送命令并捕获输出。
@@ -243,10 +277,11 @@ class SSHSession:
                         chunk = self.channel.recv(config.CMD_READ_CHUNK)
                         if chunk:
                             buf += chunk
-                            text_check = buf.decode("utf-8", errors="replace")
-                            if "Not Support Cmd Yet!" in text_check:
+                            # 仅解码末尾 chunk 检查提示符（避免 O(n²) 全量解码）
+                            tail = chunk[-256:].decode("utf-8", errors="replace")
+                            if "Not Support Cmd Yet!" in tail:
                                 break
-                            if b"\n" in buf:
+                            if b"\n" in chunk:
                                 last_line = buf.rstrip().split(b"\n")[-1].strip()
                                 if last_line.endswith(b"#") or last_line.endswith(b"$"):
                                     break
@@ -340,11 +375,62 @@ class SSHSession:
     # ============================================================
     # 二级权限提升
     # ============================================================
+    def _read_until_marker(self, marker, timeout=3.0):
+        """读取通道输出直到出现指定标志或超时。
+
+        返回 (buf, found)：found=True 表示匹配到 marker。
+        """
+        buf = b""
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if self.channel and self.channel.recv_ready():
+                try:
+                    chunk = self.channel.recv(config.CMD_READ_CHUNK)
+                except Exception:
+                    break
+                if chunk:
+                    buf += chunk
+                    if marker in buf.decode("utf-8", errors="replace"):
+                        return buf, True
+            else:
+                time.sleep(0.03)
+        return buf, False
+
+    def _is_vmsb_legacy_version(self):
+        """判断 VMS-B 是否为旧版本（.27.xx 及以前），旧版本二级进入方式不同。
+
+        版本号格式如：VMS-B1101.27.22.L02 .240326
+        解析模型号后的主版本号，<=27 则为旧版本。
+        """
+        if self.server_type != "vms-b":
+            return False
+        ver = self.device_version.strip()
+        if not ver:
+            # 未获取到版本号时保守判定为旧版本（安全优先）
+            logger.warning("VMS-B version unknown, assuming legacy level2 flow")
+            return True
+        # 提取 VMS-Bxxxx.{major}.{minor}... 中的 major
+        m = re.search(r'VMS-B\d+\.(\d+)\.', ver, re.IGNORECASE)
+        if m:
+            major = int(m.group(1))
+            is_legacy = major <= 27
+            logger.info("VMS-B version=%s, major=%d, legacy=%s", ver, major, is_legacy)
+            return is_legacy
+        # 无法解析时保守判定为旧版本
+        logger.warning("VMS-B version=%s unparseable, assuming legacy level2 flow", ver)
+        return True
+
     def enter_level2(self, password):
         """进入设备后台二级 shell。
 
         返回 {'ok': bool, 'output': str}。
         ok=True 表示二级权限已获取；ok=False 时 output 包含设备的拒绝信息。
+
+        VMS-B 旧版本（.27.xx 及以前）：login → 直接输入二级密码并回车
+        其他设备：login → zhimakaimen → Ctrl+Q → Ctrl+W → 二级密码
+
+        性能优化：不再使用固定 sleep，而是自适应等待 Username:/Passwd:
+        提示符出现，检测到欢迎横幅即提前结束，全程约 2s（原固定等待约 8s）。
         """
         self.device_info_abort = True
         with self.lock:
@@ -352,27 +438,58 @@ class SSHSession:
             self.suppress_output = True
             time.sleep(config.CMD_DRAIN_DELAY)
             self._drain_channel()
+            # 连接 banner 可能较长且分批到达：二次排空防止残留
+            # 干扰二级登录的 Username:/Passwd: 交互
+            time.sleep(0.3)
+            self._drain_channel()
             try:
                 self.send("login\n")
-                time.sleep(1.5)
-                self.send(config.LEVEL2_USERNAME)
-                time.sleep(0.1)
-                for ctrl in config.LEVEL2_CTRL_SEQUENCE:
-                    self.send(ctrl)
-                    time.sleep(0.1)
-                self.send("\n")
-                time.sleep(1.5)
-                if password:
-                    self.send(password + "\n")
-                time.sleep(1.0)
 
-                buf = b""
+                # VMS-B 旧版本：login 后直接输入二级密码并回车
+                if self._is_vmsb_legacy_version():
+                    logger.info("Using legacy VMS-B level2 flow (login → password)")
+                    # 等待 Passwd: 提示（旧版本 login 后直接出密码提示）
+                    buf, found_pass = self._read_until_marker("Passwd:", 3.0)
+                    if not found_pass and password:
+                        text = strip_ansi(buf.decode("utf-8", errors="replace"))
+                        return {"ok": False, "output": f"未收到 Passwd 提示: {text[:200]}"}
+                    if password:
+                        self.send(password + "\n")
+                else:
+                    # 标准流程：login → Username: → zhimakaimen → Ctrl+Q → Ctrl+W → Passwd: → 密码
+                    # 自适应等待 Username: 提示（通常 <0.3s，最长3s）
+                    buf, found_user = self._read_until_marker("Username:", 3.0)
+                    if not found_user:
+                        text = strip_ansi(buf.decode("utf-8", errors="replace"))
+                        return {"ok": False, "output": f"未收到 Username 提示: {text[:200]}"}
+                    self.send(config.LEVEL2_USERNAME)
+                    time.sleep(0.1)
+                    for ctrl in config.LEVEL2_CTRL_SEQUENCE:
+                        self.send(ctrl)
+                        time.sleep(0.1)
+                    self.send("\n")
+                    # 自适应等待 Passwd: 提示
+                    buf2, found_pass = self._read_until_marker("Passwd:", 3.0)
+                    buf += buf2
+                    if not found_pass and password:
+                        text = strip_ansi(buf.decode("utf-8", errors="replace"))
+                        return {"ok": False, "output": f"未收到 Passwd 提示: {text[:200]}"}
+                    if password:
+                        self.send(password + "\n")
+
+                # 读取登录结果：检测到二级欢迎横幅即提前结束（原固定等3s）
                 t0 = time.time()
                 while time.time() - t0 < config.LEVEL2_RESPONSE_WAIT:
                     if self.channel and self.channel.recv_ready():
                         buf += self.channel.recv(config.CMD_READ_CHUNK)
+                        if "Welcome to" in buf.decode("utf-8", errors="replace"):
+                            # 稍候片刻确认无失败信息后提前结束
+                            time.sleep(0.3)
+                            while self.channel and self.channel.recv_ready():
+                                buf += self.channel.recv(config.CMD_READ_CHUNK)
+                            break
                     else:
-                        time.sleep(0.1)
+                        time.sleep(0.03)
                 text = strip_ansi(buf.decode("utf-8", errors="replace"))
                 text = text.replace("\r", "").strip()
 
@@ -390,7 +507,8 @@ class SSHSession:
     def get_device_info(self):
         """查询设备名称、序列号、固件版本。
 
-        使用 config.DEVICE_INFO_COMMANDS 定义的命令优先级，
+        当 server_type 非空时，使用 config.SERVER_TYPES 中该类型
+        指定的命令直接执行（仅1条，无盲试）。
         使用 config.DEVICE_INFO_FIELDS 定义的正则规则解析输出。
         """
         info = {"device_name": "", "serial_number": "", "pub": ""}
@@ -430,21 +548,23 @@ class SSHSession:
                 logger.debug("run_command fallback '%s' failed: %s", cmd, e)
             return ""
 
-        # 设备名 & SN
-        for cmd in config.DEVICE_INFO_COMMANDS["manuinfo"]:
-            if info["device_name"] and info["serial_number"]:
-                break
-            if self.device_info_abort:
-                return info
-            _parse_fields(_try_run(cmd))
+        # 按预选类型执行特定命令（跳过盲试）
+        if self.server_type and self.server_type in config.SERVER_TYPES:
+            st = config.SERVER_TYPES[self.server_type]
+            # manuinfo_cmd 为 None 表示跳过设备信息（如 other 类型）
+            if st.get("manuinfo_cmd"):
+                if self.device_info_abort:
+                    return info
+                _parse_fields(_try_run(st["manuinfo_cmd"]))
+            if st.get("version_cmd") and not self.device_info_abort:
+                _parse_fields(_try_run(st["version_cmd"]))
+            # 保存版本号供 enter_level2 判断进入方式
+            self.device_version = info.get("pub", "")
+            logger.info("Device info result (type=%s): %s", self.server_type, info)
+            return info
 
-        # 版本号
-        for cmd in config.DEVICE_INFO_COMMANDS["version"]:
-            if info["pub"] or self.device_info_abort:
-                break
-            _parse_fields(_try_run(cmd))
-
-        logger.info("Device info result: %s", info)
+        # server_type 为空或未识别时，返回空信息（前端强制选择类型，此处不应到达）
+        logger.warning("get_device_info: unknown server_type=%s, skipping", self.server_type)
         return info
 
     # ============================================================
@@ -479,8 +599,12 @@ class SSHSession:
 
         优先使用独立的第二条 SSH 连接（避免与交互 shell 共享 transport 导致挂死）。
         若第二条连接无法建立（设备限制并发会话数），回退到主连接。
+        失败一次后标记 fs_not_supported，后续直接用主连接，不再重试。
         """
         with self.fs_lock:
+            # 设备已确认不支持专用连接，直接用主连接
+            if self.fs_not_supported:
+                return self.client
             if self.fs_connected and self.fs_client is not None:
                 try:
                     t = self.fs_client.get_transport()
@@ -499,14 +623,54 @@ class SSHSession:
                 self.fs_connected = True
                 return client
             except Exception as e:
-                logger.warning("Dedicated FS connection failed (%s); falling back to main connection", e)
+                logger.warning("Dedicated FS connection failed (%s); using main connection", e)
+                self.fs_not_supported = True
                 return self.client
 
-    def get_sftp(self):
+    def get_sftp(self, timeout=8):
+        """创建新的 SFTP channel。带超时保护，防止 open_sftp() 挂死。
+
+        超时后自动重置 FS 连接（关闭旧连接，下次 get_fs_client 创建新连接），
+        释放设备端所有 channel，使后续操作恢复正常。
+        """
         if not self.connected or not self.client:
             raise RuntimeError("未连接")
         client = self.get_fs_client()
-        return client.open_sftp()
+        result = {}
+        def _worker():
+            try:
+                result["sftp"] = client.open_sftp()
+            except Exception as e:
+                result["error"] = e
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        t.join(timeout)
+        if "sftp" in result:
+            return result["sftp"]
+        if "error" in result:
+            raise result["error"]
+        # 超时——重置 FS 连接，释放设备端 channel
+        logger.warning("SFTP open_sftp timed out (%ds), resetting FS connection", timeout)
+        with self.fs_lock:
+            if self.fs_client:
+                try:
+                    self.fs_client.close()
+                except Exception:
+                    pass
+            self.fs_client = None
+            self.fs_connected = False
+        raise RuntimeError("SFTP通道打开超时，已重置连接")
+
+    def close_sftp(self):
+        """重置 FS 连接（关闭旧连接，下次 get_fs_client 创建新连接，释放设备端 channel）。"""
+        with self.fs_lock:
+            if self.fs_client:
+                try:
+                    self.fs_client.close()
+                except Exception:
+                    pass
+            self.fs_client = None
+            self.fs_connected = False
 
     # ============================================================
     # exec 通道（用于文件操作、抓包等非交互式命令）

@@ -5,8 +5,9 @@
   - 抓包状态按会话隔离（CaptureManager 实例绑定到单个 SSHSession），
     消除原全局 _CAPTURES 字典在多会话场景下的数据污染。
   - 状态机封装：pending（待启动）/ running（进行中）/ ended（已结束）。
-  - 缓存优化：列表 2.5s、文件大小/PID 存活 5s，避免 2s 轮询每次走 SSH。
+  - 缓存优化：列表 0.5s、文件大小 0.5s、PID 存活 1s，避免 3s 轮询每次走 SSH。
   - 输入校验：addr/port 做白名单正则校验，防止命令注入。
+  - 线程安全：end()/delete() 加锁，_build_records() 网络I/O 移出锁外。
 
 抓包文件命名：ParkTerm_YYMMDD_HHMMSS.pcap，最多保留 3 个。
 """
@@ -24,6 +25,8 @@ logger = logging.getLogger("parkterm")
 # 输入白名单正则
 _ADDR_RE = re.compile(r"^[a-zA-Z0-9.\-_:]+$")
 _PORT_RE = re.compile(r"^\d+$")
+# PID 存活退出码精确匹配（避免 "RC=1" 误匹配 "RC=10"）
+_RC_RE = re.compile(r"RC=(\d+)")
 
 
 def _validate_addr(addr):
@@ -49,7 +52,11 @@ def _validate_port(port):
 
 
 def build_filter(addr, port):
-    """构造 tcpdump 过滤表达式（已校验输入）。"""
+    """构造 tcpdump 过滤表达式（已校验输入）。
+
+    IP 与端口条件之间用 "and" 连接（tcpdump 语法要求连接词，
+    空格连接如 "host X port Y" 会导致 filter expression 语法错误）。
+    """
     parts = []
     if addr:
         hosts = [a.strip() for a in addr.split(",") if a.strip()]
@@ -65,7 +72,7 @@ def build_filter(addr, port):
                 "(" + " or ".join(f"port {p}" for p in ports) + ")"
                 if len(ports) > 1 else f"port {ports[0]}"
             )
-    return " ".join(parts)
+    return " and ".join(parts)
 
 
 def gen_name():
@@ -93,29 +100,71 @@ class CaptureManager:
     def _invalidate(self):
         self._list_cache = None
 
-    def _ensure_dir(self):
-        """确保抓包保存目录存在。"""
-        try:
-            self.session.run_command(
-                f"mkdir -p {config.CAPTURE_DIR}",
-                timeout=8,
-            )
-        except Exception:
-            pass
+    def _names_on_disk(self):
+        """轻量列出磁盘上的抓包文件名（单条命令，不做 stat）。
 
-    def _all_names(self):
-        return [r["name"] for r in self._build_records()]
+        供 start()/save() 的数量控制使用，替代昂贵的 _build_records()。
+        """
+        try:
+            out = self.session.run_command(
+                f"ls -1 {config.CAPTURE_DIR}/ParkTerm_*.pcap 2>/dev/null", timeout=8)
+            names = []
+            for line in (out or "").split("\n"):
+                n = line.strip().split("/")[-1]
+                if n.startswith("ParkTerm_") and n.endswith(".pcap"):
+                    names.append(n)
+            return names
+        except Exception as e:
+            logger.debug("_names_on_disk failed: %s", e)
+            return []
+
+    def _stat_all(self):
+        """一次性获取目录下所有抓包文件的名称与大小（单条命令）。
+
+        性能优化：替代「ls 扫描 + 每文件一条 stat」的多命令模式，
+        列表刷新从 N+1 条命令降为 1 条。
+        返回 {文件名: 字节数}。
+        """
+        cmd = (f"stat -c '%n|%s' {config.CAPTURE_DIR}/ParkTerm_*.pcap 2>/dev/null")
+        out = self.session.run_command(cmd, timeout=10)
+        result = {}
+        for line in (out or "").split("\n"):
+            line = line.strip()
+            if "|" not in line:
+                continue
+            path, _, size = line.rpartition("|")
+            name = path.strip().split("/")[-1]
+            if not (name.startswith("ParkTerm_") and name.endswith(".pcap")):
+                continue
+            try:
+                result[name] = int(size.strip())
+            except ValueError:
+                result[name] = 0
+        return result
 
     def _pid_alive(self, pid):
+        """检查进程是否存活。返回 True / False / None（无法判断）。
+
+        部分受限 shell（一级环境）下 kill -0 + echo RC=$? 不产生任何输出，
+        此时返回 None 表示"无法判断"，调用方应保持原状态而非判定为已结束。
+        """
         if not pid:
             return False
         try:
             out = self.session.run_command(
                 f"kill -0 {pid} 2>/dev/null; echo RC=$?", timeout=6
             )
-            return "RC=0" in out
-        except Exception:
+            m = _RC_RE.search(out)
+            if not m:
+                # 输出中无 RC= 标记（受限环境或命令被拦截）→ 无法判断
+                logger.debug("_pid_alive(%s): no RC marker in output: %r", pid, out[:100])
+                return None
+            rc = int(m.group(1))
+            if rc == 0:
+                return True
             return False
+        except Exception:
+            return None
 
     def _pid_alive_cached(self, pid):
         if not pid:
@@ -125,7 +174,12 @@ class CaptureManager:
         if c and (now - c[0]) < config.CAPTURE_PID_CACHE_TTL:
             return c[1]
         ok = self._pid_alive(pid)
-        self._pid_cache[pid] = (now, ok)
+        # None（无法判断）不写入缓存，避免把"未知"缓存为持久状态
+        if ok is not None:
+            self._pid_cache[pid] = (now, ok)
+            # 进程已死 → 清理 PID 缓存条目
+            if ok is False:
+                self._pid_cache.pop(pid, None)
         return ok
 
     def _file_size(self, path):
@@ -142,7 +196,9 @@ class CaptureManager:
                 size = int(m.group(1))
         except Exception:
             pass
-        self._size_cache[path] = (now, size)
+        # 仅缓存成功获取的大小（size > 0），避免缓存失败时的 0 值
+        if size > 0:
+            self._size_cache[path] = (now, size)
         return size
 
     def _delete_file(self, name):
@@ -163,58 +219,91 @@ class CaptureManager:
         self._size_cache.pop(fpath, None)
         self._captures.pop(name, None)
 
+    def _cleanup_old_files(self):
+        """清理旧文件直到数量达标。最多重试 3 次防止无限循环。"""
+        names = self._names_on_disk()
+        retries = 0
+        while len(names) >= config.CAPTURE_MAX_FILES and retries < 3:
+            self._delete_file(names[0])
+            new_names = self._names_on_disk()
+            if len(new_names) == len(names):
+                # 删除失败（权限/网络），跳出避免无限循环
+                logger.warning("_cleanup_old_files: delete failed, %d files remain", len(new_names))
+                break
+            names = new_names
+            retries += 1
+        return names
+
     # ============================================================
     # 状态构建（带缓存）
     # ============================================================
-    def _scan_disk(self):
-        """扫描远程SSH设备上的 .pcap 文件，添加到内存状态中（用于展示历史抓包）。"""
-        try:
-            # 使用 SSH 命令扫描远程设备上的抓包文件
-            cmd = f"ls -1 {config.CAPTURE_DIR}/ParkTerm_*.pcap 2>/dev/null || true"
-            out = self.session.run_command(cmd, timeout=10)
-            
-            if not out or not out.strip():
-                logger.debug("_scan_disk: no capture files found")
-                return
-            
-            for line in out.strip().split("\n"):
-                line = line.strip()
-                if not line or not line.endswith(".pcap"):
-                    continue
-                # 从完整路径中提取文件名
-                filename = line.split("/")[-1]
-                if not filename.startswith("ParkTerm_"):
-                    continue
-                if filename not in self._captures:
-                    self._captures[filename] = {
+    def _build_records(self):
+        """从内存状态构建抓包列表。状态精确为 pending/running/ended。
+
+        性能优化：
+        - 用单条 stat 命令批量获取全部文件名+大小（N+1→1）
+        - PID 存活检查在锁外执行，避免持锁期间阻塞网络 I/O
+        - 清理已不在磁盘上的历史条目，防止 _captures 无界增长
+        """
+        now = time.time()
+        if self._list_cache and (now - self._list_cache[0]) < config.CAPTURE_LIST_CACHE_TTL:
+            return self._list_cache[1]
+
+        # ---- 锁外：网络 I/O（stat + PID 检查）----
+        file_sizes = self._stat_all()
+        # stat 命令瞬时失败但内存中已有文件时，回退到（带缓存的）单文件查询
+        if not file_sizes and self._captures:
+            file_sizes = {}
+            for n in list(self._captures.keys()):
+                if n.endswith(".pcap"):
+                    file_sizes[n] = self._file_size(f"{config.CAPTURE_DIR}/{n}")
+
+        # 收集需要检查 PID 的任务（锁内快照 → 锁外检查）
+        pids_to_check = {}
+        with self._lock:
+            for name, st in self._captures.items():
+                pid = st.get("pid")
+                if pid and pid > 0 and st.get("ended") is None:
+                    pids_to_check[pid] = name
+        # 锁外执行 PID 存活检查（网络 I/O）
+        pid_alive_map = {}
+        for pid in pids_to_check:
+            pid_alive_map[pid] = self._pid_alive_cached(pid)
+
+        # ---- 锁内：构建输出 ----
+        out = {}
+        with self._lock:
+            # 用磁盘文件补充历史记录
+            for fname, fsize in file_sizes.items():
+                if fname not in self._captures:
+                    self._captures[fname] = {
                         "pid": 0,  # 0表示历史文件，已结束
-                        "path": f"{config.CAPTURE_DIR}/{filename}",
+                        "path": f"{config.CAPTURE_DIR}/{fname}",
                         "addr": "",
                         "port": "",
                         "size_mb": 0,
                         "time_min": 0,
                         "started": None,
-                        "ended": time.time(),
+                        "ended": now,
                         "running": False,
                     }
-                    logger.debug("Found historical capture file: %s", filename)
-        except Exception as e:
-            logger.warning("_scan_disk failed: %s", e)
 
-    def _build_records(self, force=False):
-        """从内存状态构建抓包列表。状态精确为 pending/running/ended。"""
-        now = time.time()
-        # 每次构建列表前扫描磁盘，补充历史抓包文件
-        self._scan_disk()
-        if not force:
-            if self._list_cache and (now - self._list_cache[0]) < config.CAPTURE_LIST_CACHE_TTL:
-                return self._list_cache[1]
+            # 清理已不在磁盘上的已结束条目（防止 _captures 无界增长）
+            disk_names = set(file_sizes.keys())
+            stale = [
+                n for n, st in self._captures.items()
+                if n not in disk_names
+                and st.get("pid") is not None  # 保留 pending（pid=None）
+                and st.get("ended") is not None  # 仅清理已结束的
+            ]
+            for n in stale:
+                self._captures.pop(n, None)
+                fpath = f"{config.CAPTURE_DIR}/{n}"
+                self._size_cache.pop(fpath, None)
 
-        out = {}
-        with self._lock:
             for name, st in list(self._captures.items()):
                 pid = st.get("pid")
-                path = f"{config.CAPTURE_DIR}/{name}"
+                path = st.get("path") or f"{config.CAPTURE_DIR}/{name}"
                 # 状态判断逻辑：
                 # - pid is None: 待启动（新建任务但未启动）
                 # - pid == 0: 历史文件（已结束）
@@ -224,42 +313,66 @@ class CaptureManager:
                     size = 0
                     elapsed = None
                 elif pid == 0:
-                    # 历史文件，状态为已结束
                     status = "ended"
-                    size = self._file_size(path)
+                    size = file_sizes.get(name)
+                    if size is None:
+                        size = self._file_size(path)
                     elapsed = st.get("ended") - st.get("started") if st.get("started") else None
                 else:
                     if st.get("ended") is not None:
+                        # 用户手动结束（end() 设置 ended）→ 已结束
                         status = "ended"
-                    elif self._pid_alive_cached(pid):
-                        status = "running"
                     else:
-                        status = "ended"
-                        st["ended"] = st.get("ended") or now
-                        st["running"] = False
+                        alive = pid_alive_map.get(pid)
+                        if alive is None:
+                            # PID 无法判断（受限环境）→ 保持上次状态，避免误判
+                            status = "running" if st.get("running") else "ended"
+                        elif alive:
+                            status = "running"
+                            st["running"] = True
+                        else:
+                            # 进程确认已退出 → 进一步用文件大小变化兜底：
+                            # 若文件仍在增长，说明抓包仍在进行（PID 判断失败）
+                            new_size = file_sizes.get(name)
+                            if new_size is None:
+                                new_size = self._file_size(path)
+                            last_size = st.get("last_size")
+                            if last_size is not None and new_size > last_size and new_size > 0:
+                                status = "running"
+                                st["running"] = True
+                            else:
+                                status = "ended"
+                                st["running"] = False
+                                st["ended"] = st.get("ended") or now
                     started = st.get("started") or now
                     if status == "running":
                         elapsed = int(now - started)
+                        size = file_sizes.get(name)
+                        if size is None:
+                            size = self._file_size(path)
+                        st["last_size"] = size
                     else:
                         ended = st.get("ended") or now
                         elapsed = int(ended - started) if started else None
-                    size = self._file_size(path) if status != "pending" else 0
+                        size = file_sizes.get(name)
+                        if size is None:
+                            size = self._file_size(path)
 
                 out[name] = {
                     "name": name,
                     "path": path,
                     "addr": st.get("addr", ""),
                     "port": st.get("port", ""),
-                    "size": size,
-                    "size_mb": round(size / 1048576, 1) if size else 0,
+                    "size": size or 0,
+                    "size_mb": round((size or 0) / 1048576, 1) if size else 0,
                     "duration": elapsed,
                     "status": status,
                 }
 
-        items = sorted(out.values(), key=lambda r: r["name"], reverse=True)
-        items = items[:config.CAPTURE_MAX_FILES]
-        self._list_cache = (now, items)
-        return items
+            items = sorted(out.values(), key=lambda r: r["name"], reverse=True)
+            items = items[:config.CAPTURE_MAX_FILES]
+            self._list_cache = (now, items)
+            return items
 
     # ============================================================
     # 公共 API
@@ -272,10 +385,7 @@ class CaptureManager:
         time_min = int(max(1, time_min or config.CAPTURE_DEFAULT_TIME_MIN))
 
         with self._lock:
-            names = self._all_names()
-            while len(names) >= config.CAPTURE_MAX_FILES:
-                self._delete_file(names[-1])
-                names = self._all_names()
+            self._cleanup_old_files()
             name = gen_name()
             self._captures[name] = {
                 "pid": None,
@@ -311,65 +421,99 @@ class CaptureManager:
                 time_min = st.get("time_min", time_min)
                 fpath = f"{config.CAPTURE_DIR}/{name}"
             else:
-                self._ensure_dir()
-                names = self._all_names()
-                while len(names) >= config.CAPTURE_MAX_FILES:
-                    self._delete_file(names[-1])
-                    names = self._all_names()
+                self._cleanup_old_files()
                 name = gen_name()
                 fpath = f"{config.CAPTURE_DIR}/{name}"
 
+            # 先注册任务（pid=None → 待启动），防止并发竞态
+            # 导致文件先于状态被扫描为"历史已结束"
+            self._captures[name] = {
+                "pid": None,
+                "path": fpath,
+                "addr": addr,
+                "port": port,
+                "size_mb": size_mb,
+                "time_min": time_min,
+                "started": None,
+                "ended": None,
+                "running": False,
+            }
+            self._invalidate()
+
             filt = build_filter(addr, port)
+            # 过滤表达式含括号/and/or，必须用单引号包裹，
+            # 否则裸括号会被 shell 解释为子 shell 语法导致整条命令被拒绝
+            filt_part = f"'{filt}'" if filt else ""
             time_sec = int(max(1, time_min * 60))
             debug_dir = f"{config.CAPTURE_DIR}/debug"
             pidfile = f"{debug_dir}/{name}.pid"
             errfile = f"{debug_dir}/{name}.err"
 
-            # 简单可靠的启动方式：不用子 shell，PID 写入 pidfile，不依赖输出捕获
-            # tcpdump 参数说明：
-            #   -i any    抓取所有网卡
-            #   -nn       不解析主机名和端口名
-            #   -s0       抓取完整数据包（不截断）
-            #   -C N      文件达到 N MB 后旋转
-            #   -G N      N 秒后旋转
-            #   -W 1      最多保留 1 个文件（达到限制后停止）
-            #   -w file   输出文件
+            # 启动方式：PID 同时写入 pidfile（诊断用）并 echo 到输出（直接解析），
+            # 消除"启动后轮询 cat pidfile"的多条命令往返
             cmd = (
                 f"mkdir -p {config.CAPTURE_DIR} {debug_dir}; "
                 f"rm -f {fpath} {pidfile} {errfile}; "
                 f"nohup tcpdump -i any -nn -s0 -C {size_mb} -G {time_sec} -W 1 "
-                f"-w {fpath} {filt} >/dev/null 2>{errfile} </dev/null & "
-                f"echo $! > {pidfile}"
+                f"-w {fpath} {filt_part} >/dev/null 2>{errfile} </dev/null & "
+                f"echo $! > {pidfile}; echo PARKTERM_PID=$!"
             )
             logger.info("capture_start cmd: %s", cmd)
             out = self.session.run_command(cmd, timeout=15)
-            logger.info("capture_start raw output: %r", out[:500])
+            logger.info("capture_start raw output: %r", (out or "")[:500])
 
-            # 等待 pidfile 写入（最多等2秒）
-            import time as _time
+            # 受限环境（一级）检测：tcpdump/nohup 等命令被拦截
+            if out and "Not Support Cmd Yet!" in out:
+                self._captures.pop(name, None)  # 移除刚注册的任务
+                self._invalidate()
+                raise RuntimeError(
+                    "当前环境（一级）不支持抓包命令（tcpdump/nohup 被拦截），"
+                    "请先进入二级后重试"
+                )
+
+            # 直接从命令输出解析 PID（消除 pidfile 读取循环，省 1~10 条命令）
             pid = None
-            for _ in range(10):
-                try:
-                    po = self.session.run_command(f"cat {pidfile} 2>/dev/null", timeout=3)
-                    if po.strip():
-                        pid = int(po.strip().split()[0])
-                        break
-                except Exception:
-                    pass
-                _time.sleep(0.2)
+            if out:
+                m = re.search(r"PARKTERM_PID=(\d+)", out)
+                if m:
+                    pid = int(m.group(1))
             logger.info("capture_start pid: %s", pid)
 
-            if not pid:
-                # 读取错误日志帮助诊断
-                err_content = ""
+            def _read_err():
                 try:
-                    err_out = self.session.run_command(f"cat {errfile} 2>&1", timeout=5)
-                    err_content = err_out.strip()
+                    return self.session.run_command(f"cat {errfile} 2>&1", timeout=5).strip()
                 except Exception:
-                    pass
+                    return ""
+
+            if not pid:
+                err_content = _read_err()
+                self._captures.pop(name, None)  # 移除刚注册的任务
+                self._invalidate()
+                if "Not Support Cmd Yet!" in err_content:
+                    raise RuntimeError("当前环境（一级）不支持抓包命令，请先进入二级后重试")
                 raise RuntimeError(f"tcpdump 启动失败，无法获取 PID。错误日志: {err_content[:300]}")
 
-            # 5. 成功，保存任务状态
+        # ---- 锁外：验证进程存活（网络 I/O 不持锁）----
+        time.sleep(0.5)
+        verify = self._pid_alive(pid)
+        if verify is False:
+            err_content = _read_err()
+            with self._lock:
+                self._captures.pop(name, None)
+                self._invalidate()
+            if "parse filter" in err_content or "syntax error" in err_content:
+                raise RuntimeError(
+                    "抓包过滤条件无效（请检查 IP 地址/端口格式，"
+                    "多个地址或端口用英文逗号分隔）: " + err_content[:200])
+            if err_content:
+                raise RuntimeError(f"tcpdump 启动后立即退出: {err_content[:300]}")
+            raise RuntimeError(
+                "tcpdump 启动后立即退出，请确认设备已安装 tcpdump"
+                "（进入二级后执行 which tcpdump 检查）"
+            )
+
+        # 成功，保存任务状态
+        with self._lock:
             self._captures[name] = {
                 "pid": pid,
                 "path": fpath,
@@ -380,6 +524,7 @@ class CaptureManager:
                 "started": time.time(),
                 "ended": None,
                 "running": True,
+                "last_size": 0,
             }
             self._invalidate()
         return name
@@ -390,26 +535,28 @@ class CaptureManager:
 
     def end(self, name):
         """结束一个正在运行的抓包，保留文件（状态变为 ended，可下载）。"""
-        st = self._captures.get(name)
-        if not st:
-            raise ValueError("抓包任务不存在")
-        if st.get("pid"):
-            try:
-                self.session.run_command(
-                    f"kill -TERM {st['pid']} 2>/dev/null; true", timeout=6
-                )
-            except Exception:
-                pass
-        st["running"] = False
-        st["ended"] = time.time()
-        self._invalidate()
+        with self._lock:
+            st = self._captures.get(name)
+            if not st:
+                raise ValueError("抓包任务不存在")
+            if st.get("pid"):
+                try:
+                    self.session.run_command(
+                        f"kill -TERM {st['pid']} 2>/dev/null; true", timeout=6
+                    )
+                except Exception:
+                    pass
+            st["running"] = False
+            st["ended"] = time.time()
+            self._invalidate()
 
     def delete(self, name):
         """删除抓包（停止进程 + 删除文件）。"""
         if not name or not name.startswith("ParkTerm_") or not name.endswith(".pcap"):
             raise ValueError("非法文件名")
-        self._delete_file(name)
-        self._invalidate()
+        with self._lock:
+            self._delete_file(name)
+            self._invalidate()
 
     def download_path(self, name):
         """返回抓包文件的远程路径，供下载使用。"""

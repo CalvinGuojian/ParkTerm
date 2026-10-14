@@ -218,6 +218,8 @@ class FileManager:
             return result["items"]
         if "error" in result:
             raise result["error"]
+        # watchdog 超时——重置 FS 连接，释放设备端 channel
+        self.session.close_sftp()
         raise RuntimeError("SFTP子系统响应超时（可能该设备不支持SFTP），已自动切换其他方式")
 
     def _exec_listdir(self, remote_path):
@@ -263,12 +265,19 @@ class FileManager:
 
     def _shell_listdir(self, remote_path):
         """最后手段：通过交互 PTY shell 列目录。"""
-        cmd = "ls -la --time-style=+%s " + _quote(remote_path)
-        out = self.session.run_command(cmd, timeout=8)
-        logger.debug("_shell_listdir '%s': %r", cmd, out[:300])
-        if "Not Support Cmd Yet!" in out or not out.strip():
-            raise RuntimeError("unsupported")
-        return self._parse_ls_output(out)
+        safe_path = _quote(remote_path)
+        candidates = [
+            f"ls -la --time-style=+%s {safe_path}",
+            f"ls -la {safe_path}",
+            f"ls -l {safe_path}",
+        ]
+        for cmd in candidates:
+            out = self.session.run_command(cmd, timeout=8)
+            logger.debug("_shell_listdir '%s': %r", cmd, out[:300])
+            if "Not Support Cmd Yet!" in out or not out.strip():
+                continue
+            return self._parse_ls_output(out)
+        raise RuntimeError("unsupported")
 
     # ============================================================
     # ls 输出解析（GNU + BusyBox 两种格式）
@@ -341,7 +350,10 @@ class FileManager:
                     sftp.rmdir(remote_path)
                 return
             finally:
-                sftp.close()
+                try:
+                    sftp.close()
+                except Exception:
+                    pass
         except Exception as e:
             logger.debug("delete: SFTP failed (%s), trying exec channel", e)
         # Tier 2: exec 通道（已修复注入：使用 shlex.quote）
@@ -361,12 +373,39 @@ class FileManager:
                 sftp.mkdir(remote_path)
                 return
             finally:
-                sftp.close()
+                try:
+                    sftp.close()
+                except Exception:
+                    pass
         except Exception as e:
             logger.debug("mkdir: SFTP failed (%s), trying exec channel", e)
         if self.session.exec_run(f"mkdir -p {_quote(remote_path)}"):
             return
         self.session.run_command("mkdir -p " + _quote(remote_path), timeout=8)
+
+    # ============================================================
+    # 重命名 / 移动：SFTP → exec → shell
+    # ============================================================
+    def rename(self, old_path, new_path):
+        try:
+            sftp = self.session.get_sftp()
+            try:
+                try:
+                    sftp.get_channel().settimeout(config.FILE_DELETE_TIMEOUT)
+                except Exception:
+                    pass
+                sftp.rename(old_path, new_path)
+                return
+            finally:
+                try:
+                    sftp.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug("rename: SFTP failed (%s), trying exec channel", e)
+        if self.session.exec_run(f"mv {_quote(old_path)} {_quote(new_path)}"):
+            return
+        self.session.run_command(f"mv {_quote(old_path)} {_quote(new_path)}", timeout=8)
 
     # ============================================================
     # SCP 传输回退

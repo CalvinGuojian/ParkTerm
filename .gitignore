@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# CodeBuddy
+.codebuddy/
+
+# OS
+Thumbs.db
+.DS_Store
