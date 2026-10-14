@@ -97,18 +97,33 @@ class UpdateManager:
         self._set(stage="checking", percent=0, error="",
                   started=time.time(), finished=None)
         try:
-            logger.info("checking updates from %s", config.UPDATE_CHECK_URL)
-            req = urllib.request.Request(
-                config.UPDATE_CHECK_URL,
-                headers={"User-Agent": f"ParkTerm/{config.VERSION}"}
-            )
-            with urllib.request.urlopen(req, timeout=config.UPDATE_CHECK_TIMEOUT) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            # 优先 jsDelivr CDN（国内快），失败回退 raw.githubusercontent.com
+            data = None
+            for check_url in [config.UPDATE_CHECK_URL, config.UPDATE_CHECK_URL_FALLBACK]:
+                try:
+                    logger.info("checking updates from %s", check_url)
+                    req = urllib.request.Request(
+                        check_url,
+                        headers={"User-Agent": f"ParkTerm/{config.VERSION}"}
+                    )
+                    with urllib.request.urlopen(req, timeout=config.UPDATE_CHECK_TIMEOUT) as resp:
+                        data = json.loads(resp.read().decode("utf-8"))
+                    break
+                except Exception as e:
+                    logger.warning("check from %s failed: %s", check_url, e)
+                    continue
+
+            if data is None:
+                raise RuntimeError("所有更新源均不可用（jsDelivr 和 GitHub raw 均失败）")
 
             remote_ver = data.get("version", "")
             url = data.get("url", "")
             changelog = data.get("changelog", "")
             force = bool(data.get("forceUpdate", False))
+
+            # 如果配置了下载代理且 url 是 GitHub Releases，加代理前缀加速
+            if config.UPDATE_DOWNLOAD_PROXY and url.startswith("https://github.com/"):
+                url = config.UPDATE_DOWNLOAD_PROXY + url
 
             current_tuple = _parse_version(config.VERSION)
             remote_tuple = _parse_version(remote_ver)

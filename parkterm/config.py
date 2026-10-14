@@ -278,10 +278,14 @@ UPGRADE_POLL_INTERVAL = 1.0
 # ============================================================
 # 自动更新（ParkTerm 自身）
 # ============================================================
-# version.json 的 GitHub raw URL（仓库根目录）
-UPDATE_CHECK_URL = "https://raw.githubusercontent.com/CalvinGuojian/ParkTerm/main/version.json"
+# version.json 检查地址（jsDelivr CDN 加速，国内快；raw.githubusercontent.com 国内慢/超时）
+UPDATE_CHECK_URL = "https://cdn.jsdelivr.net/gh/CalvinGuojian/ParkTerm@main/version.json"
+# 备用地址（jsDelivr 不可用时回退到 GitHub raw，可能慢但可用）
+UPDATE_CHECK_URL_FALLBACK = "https://raw.githubusercontent.com/CalvinGuojian/ParkTerm/main/version.json"
+# GitHub 下载加速代理前缀（为空则直连 GitHub Releases）
+UPDATE_DOWNLOAD_PROXY = "https://ghp.ci/"
 # 检查更新超时（秒）
-UPDATE_CHECK_TIMEOUT = 10
+UPDATE_CHECK_TIMEOUT = 8
 # 下载 exe 超时（秒）
 UPDATE_DOWNLOAD_TIMEOUT = 300
 # 下载进度轮询间隔（秒）
