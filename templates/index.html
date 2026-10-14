@@ -4301,6 +4301,183 @@ function closeFeedback() {
   document.getElementById('feedbackLayer').classList.add('hidden');
 }
 
+// ================================================================
+//  自动更新（ParkTerm 自身）
+// ================================================================
+var updatePollTimer = null;
+var updateInfo = null;
+
+function checkAppUpdate(manual) {
+  var layer = document.getElementById('updateLayer');
+  var infoView = document.getElementById('updateInfoView');
+  var progressView = document.getElementById('updateProgressView');
+  var resultView = document.getElementById('updateResultView');
+  var content = document.getElementById('updateInfoContent');
+  var actions = document.getElementById('updateInfoActions');
+
+  if (manual) {
+    infoView.style.display = '';
+    progressView.style.display = 'none';
+    resultView.style.display = 'none';
+    actions.style.display = 'none';
+    content.innerHTML = '<div style="font-size:14px;color:#8b949e;margin-bottom:8px">正在检查更新...</div>';
+    layer.classList.remove('hidden');
+  }
+
+  fetch('/api/check_update')
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (!res.ok) {
+        if (manual) {
+          content.innerHTML = '<div style="font-size:14px;color:#f85149;margin-bottom:8px">检查更新失败</div><div style="font-size:12px;color:#6e7681">' + escHtml(res.error || '') + '</div>';
+          actions.style.display = '';
+          document.getElementById('btnUpdateCancel').style.display = '';
+          document.getElementById('btnUpdateNow').style.display = 'none';
+        }
+        return;
+      }
+      updateInfo = res;
+      if (res.hasUpdate) {
+        var forceHtml = res.forceUpdate ? '<div style="font-size:12px;color:#f85149;margin-top:8px;font-weight:600">此版本为强制更新，必须更新后才能继续使用</div>' : '';
+        content.innerHTML =
+          '<div style="font-size:14px;color:#c9d1d9;margin-bottom:4px">发现新版本</div>' +
+          '<div style="font-size:20px;color:#58a6ff;font-weight:700;margin-bottom:12px">' + escHtml(res.version || '') + '</div>' +
+          '<div style="font-size:12px;color:#6e7681;margin-bottom:8px">当前版本：' + escHtml(res.currentVersion || '') + '</div>' +
+          '<div style="text-align:left;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px 12px;max-height:180px;overflow:auto;font-size:12px;color:#8b949e;line-height:1.8;white-space:pre-wrap">' + escHtml(res.changelog || '无更新说明') + '</div>' +
+          forceHtml;
+        actions.style.display = '';
+        document.getElementById('btnUpdateCancel').style.display = res.forceUpdate ? 'none' : '';
+        document.getElementById('btnUpdateNow').style.display = '';
+        document.getElementById('btnUpdateNow').textContent = '立即更新';
+        if (!manual) layer.classList.remove('hidden');
+      } else {
+        if (manual) {
+          content.innerHTML = '<div style="font-size:14px;color:#3fb950;margin-bottom:4px">已是最新版本</div><div style="font-size:12px;color:#6e7681">当前版本：' + escHtml(res.currentVersion || '') + '</div>';
+          actions.style.display = '';
+          document.getElementById('btnUpdateCancel').style.display = '';
+          document.getElementById('btnUpdateNow').style.display = 'none';
+        }
+      }
+    })
+    .catch(function(e) {
+      if (manual) {
+        content.innerHTML = '<div style="font-size:14px;color:#f85149;margin-bottom:8px">检查更新失败</div><div style="font-size:12px;color:#6e7681">' + escHtml(e.message || '') + '</div>';
+        actions.style.display = '';
+        document.getElementById('btnUpdateCancel').style.display = '';
+        document.getElementById('btnUpdateNow').style.display = 'none';
+      }
+    });
+}
+
+function closeUpdateLayer() {
+  document.getElementById('updateLayer').classList.add('hidden');
+  if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null; }
+}
+
+function startAppUpdate() {
+  if (!updateInfo || !updateInfo.url) { alert('缺少下载地址'); return; }
+  document.getElementById('updateInfoView').style.display = 'none';
+  document.getElementById('updateProgressView').style.display = '';
+  document.getElementById('updateNewVersion').textContent = updateInfo.version || '--';
+  updateUpdateUI({ stage: 'downloading', percent: 0 });
+
+  fetch('/api/start_update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: updateInfo.url })
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (!res.ok) {
+        showUpdateResult(false, '下载启动失败', res.error || '');
+        return;
+      }
+      if (updatePollTimer) clearInterval(updatePollTimer);
+      updatePollTimer = setInterval(pollAppUpdateStatus, 500);
+    })
+    .catch(function(e) {
+      showUpdateResult(false, '下载启动异常', e.message || '');
+    });
+}
+
+function updateUpdateUI(st) {
+  var pct = st.percent || 0;
+  var label = st.stage === 'downloading' ? '下载中...' : (st.stage === 'ready' ? '下载完成' : st.stage);
+  document.getElementById('updateStageLabel').textContent = label;
+  document.getElementById('updatePct').textContent = pct + '%';
+  document.getElementById('updateBar').style.width = pct + '%';
+}
+
+function pollAppUpdateStatus() {
+  if (document.getElementById('updateLayer').classList.contains('hidden')) return;
+  fetch('/api/update_status')
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (!res.ok) return;
+      var st = { stage: res.stage, percent: res.percent };
+      if (st.stage === 'ready') {
+        if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null; }
+        updateUpdateUI({ stage: 'ready', percent: 100 });
+        setTimeout(function() { showUpdateResult(true, '更新准备就绪', '点击"立即重启"完成更新'); }, 500);
+      } else if (st.stage === 'error') {
+        if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null; }
+        showUpdateResult(false, '下载失败', res.error || '');
+      } else {
+        updateUpdateUI(st);
+      }
+    })
+    .catch(function() {});
+}
+
+function showUpdateResult(ok, text, detail) {
+  document.getElementById('updateProgressView').style.display = 'none';
+  document.getElementById('updateResultView').style.display = '';
+  var icon = document.getElementById('updateResultIcon');
+  var resultText = document.getElementById('updateResultText');
+  var resultDetail = document.getElementById('updateResultDetail');
+  var btnApply = document.getElementById('btnApplyUpdate');
+  var btnCancel = document.getElementById('btnUpdateResultCancel');
+  if (ok) {
+    icon.setAttribute('stroke', '#3fb950');
+    resultText.style.color = '#3fb950';
+    resultText.textContent = text;
+    resultDetail.textContent = detail || '';
+    btnApply.style.display = '';
+    btnCancel.style.display = updateInfo && updateInfo.forceUpdate ? 'none' : '';
+  } else {
+    icon.setAttribute('stroke', '#f85149');
+    resultText.style.color = '#f85149';
+    resultText.textContent = text;
+    resultDetail.textContent = detail || '';
+    btnApply.style.display = 'none';
+    btnCancel.style.display = '';
+  }
+}
+
+function applyAppUpdate() {
+  fetch('/api/apply_update', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.ok) {
+        document.getElementById('updateResultText').textContent = '正在重启...';
+        document.getElementById('updateResultDetail').textContent = '应用即将重启，请稍候';
+        document.getElementById('btnApplyUpdate').style.display = 'none';
+        document.getElementById('btnUpdateResultCancel').style.display = 'none';
+        setTimeout(function() {
+          document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:16px;background:#0d1117;color:#c9d1d9;font-family:system-ui"><div style="font-size:18px;font-weight:600">更新中，请稍候...</div><div style="font-size:13px;color:#8b949e">应用正在重启，请勿关闭此窗口</div></div>';
+        }, 1000);
+      } else {
+        alert('应用更新失败: ' + (res.error || res.message || ''));
+      }
+    })
+    .catch(function(e) {
+      alert('应用更新异常: ' + e.message);
+    });
+}
+
+// 启动时自动检查更新（静默，有新版才弹窗）
+setTimeout(function() { checkAppUpdate(false); }, 2000);
+
 </script>
 
 <!-- 检查更新弹窗 -->
