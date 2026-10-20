@@ -33,6 +33,7 @@ from .file_manager import FileManager
 from .capture import CaptureManager
 from .upgrade import UpgradeManager, parse_upgrade_version
 from .backup import BackupManager
+from .runtime_clean import RuntimeCleanManager
 from .updater import updater as app_updater
 
 logger = logging.getLogger("parkterm")
@@ -114,6 +115,8 @@ class SessionStore:
             session.upgrade_manager = UpgradeManager(session)
             # 附加数据库备份管理器（VMS-U）
             session.backup_manager = BackupManager(session)
+            # 附加 runtime 清理管理器（VMS-B）
+            session.runtime_clean_manager = RuntimeCleanManager(session)
         with self.lock:
             self.sessions[sid] = session
         return sid, session
@@ -1103,6 +1106,72 @@ def api_backup_download():
         return jsonify({"ok": False, "error": "备份文件不存在（可能已被清理）"}), 404
     except Exception as e:
         return jsonify({"ok": False, "error": f"下载失败: {e}"}), 500
+
+
+# ============================================================
+# Runtime 清理路由（VMS-B）
+# ============================================================
+@app.route("/api/runtime_clean_check", methods=["POST"])
+def api_runtime_clean_check():
+    """检查 /var/runtime 空间占用，判断是否需要清理。"""
+    sid = (request.json or {}).get("session_id", "")
+    session = store.get(sid)
+    if not session or not session.connected:
+        return jsonify({"ok": False, "error": "未连接"}), 400
+    if session.server_type != 'vms-b':
+        return jsonify({"ok": False, "error": "Runtime 清理仅支持 VMS-B 系列设备"}), 400
+    rcm = getattr(session, "runtime_clean_manager", None)
+    if rcm is None:
+        return jsonify({"ok": False, "error": "清理管理器不可用"}), 500
+    if rcm.is_running():
+        return jsonify({"ok": False, "error": "已有清理任务正在进行中"}), 400
+    try:
+        result = rcm.check_space()
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        logger.error("runtime_clean_check error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/runtime_clean_start", methods=["POST"])
+def api_runtime_clean_start():
+    """启动 runtime 清理（后台线程）。"""
+    sid = (request.json or {}).get("session_id", "")
+    session = store.get(sid)
+    if not session or not session.connected:
+        return jsonify({"ok": False, "error": "未连接"}), 400
+    if session.server_type != 'vms-b':
+        return jsonify({"ok": False, "error": "Runtime 清理仅支持 VMS-B 系列设备"}), 400
+    rcm = getattr(session, "runtime_clean_manager", None)
+    if rcm is None:
+        return jsonify({"ok": False, "error": "清理管理器不可用"}), 500
+    if rcm.is_running():
+        return jsonify({"ok": False, "error": "已有清理任务正在进行中"}), 400
+    try:
+        rcm.start()
+        return jsonify({"ok": True})
+    except Exception as e:
+        logger.error("runtime_clean_start error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/runtime_clean_status", methods=["POST"])
+def api_runtime_clean_status():
+    """查询 runtime 清理进度状态。"""
+    sid = (request.json or {}).get("session_id", "")
+    session = store.get(sid)
+    if not session:
+        return jsonify({"ok": False, "error": "未连接"}), 400
+    rcm = getattr(session, "runtime_clean_manager", None)
+    if rcm is None:
+        return jsonify({"ok": False, "error": "清理管理器不可用"}), 400
+    st = rcm.status()
+    if st.get("started"):
+        now = st.get("finished") or time.time()
+        st["elapsed"] = int(now - st["started"])
+    else:
+        st["elapsed"] = 0
+    return jsonify({"ok": True, "status": st})
 
 
 # ============================================================

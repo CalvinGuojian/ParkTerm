@@ -729,6 +729,8 @@ body.light-theme .spinner{border-color:#d0d7de;border-top-color:#0969da}
         <button class="btn btn-secondary" id="btnUpgrade" onclick="openUpgrade()" title="版本升级" style="display:none">版本升级</button>
         <div class="toolbar-sep" id="sepBackup" style="display:none"></div>
         <button class="btn btn-secondary" id="btnBackup" onclick="openBackup()" title="数据库备份" style="display:none">数据库备份</button>
+        <div class="toolbar-sep" id="sepRuntimeClean" style="display:none"></div>
+        <button class="btn btn-secondary" id="btnRuntimeClean" onclick="openRuntimeClean()" title="Runtime清理" style="display:none">Runtime清理</button>
         <div style="flex:1"></div>
         <div class="font-controls"><span style="font-size:11px;color:#6e7681">字体:</span><button class="font-btn" onclick="changeFont(-1)" title="减小字体">A-</button><button class="font-btn" onclick="changeFont(1)" title="增大字体">A+</button></div>
         <div class="toolbar-sep"></div>
@@ -944,6 +946,44 @@ body.light-theme .spinner{border-color:#d0d7de;border-top-color:#0969da}
   </div>
 </div>
 
+<!-- Runtime 清理弹窗 -->
+<div class="cap-layer hidden" id="runtimeCleanLayer">
+  <div class="capture-card">
+    <!-- 检查视图 -->
+    <div id="runtimeCleanCheckView">
+      <div class="capture-header">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        <span class="capture-title">Runtime 清理</span>
+      </div>
+      <div class="capture-subtitle">检查 /var/runtime 目录空间占用，超过 80% 时自动执行清理<br>清理过程会停止服务、备份数据库、执行 VACUUM/导出导入，完成后自动重启</div>
+      <div id="runtimeCleanCheckResult" style="min-height:80px;display:flex;align-items:center;justify-content:center;margin:10px 0">
+        <span style="font-size:13px;color:#8b949e">点击下方按钮检查空间占用</span>
+      </div>
+      <div class="capture-footer">
+        <button class="btn btn-secondary" onclick="closeRuntimeClean()">关闭窗口</button>
+        <button class="btn btn-primary" id="btnRuntimeCleanCheck" onclick="checkRuntimeSpace()">检查空间</button>
+        <button class="btn btn-primary" id="btnRuntimeCleanStart" onclick="startRuntimeClean()" style="display:none">开始清理</button>
+      </div>
+    </div>
+    <!-- 进度视图 -->
+    <div id="runtimeCleanProgressView" style="display:none">
+      <div class="capture-header">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        <span class="capture-title">Runtime 清理</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin:2px 0 14px">
+        <span class="spinner"></span>
+        <span style="font-size:13px;color:#c9d1d9" id="runtimeCleanStageLabel">清理中...</span>
+        <span style="font-size:12px;color:#6e7681">耗时 <span id="runtimeCleanTimer" style="color:#58a6ff;font-weight:600">0</span> 秒</span>
+      </div>
+      <div id="runtimeCleanLogTail" style="font-size:12px;color:#8b949e;min-height:120px;max-height:320px;overflow:auto;text-align:left;background:#0d1117;border-radius:6px;padding:10px;border:1px solid #30363d;white-space:pre-wrap;word-break:break-all"></div>
+      <div class="capture-footer" style="margin-top:10px">
+        <button class="btn btn-secondary" onclick="closeRuntimeClean()" id="btnRuntimeCleanClose2">关闭窗口</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 右侧抽屉 Overlay -->
 <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
 <!-- 右侧抽屉（常用命令/历史命令，独立功能不交叉） -->
@@ -1099,7 +1139,7 @@ function restoreSession(tabId) {
   closeCaptureMgmt();
   closeNewCapture();
   hideCtxMenu();
-  ['diagLayer', 'upgradeLayer', 'backupLayer'].forEach(function(id) {
+  ['diagLayer', 'upgradeLayer', 'backupLayer', 'runtimeCleanLayer'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.classList.add('hidden');
   });
@@ -1274,7 +1314,7 @@ function newConnectionTab() {
 var TYPE_FEATURES = {
   'ug':      ['service_view', 'commands', 'guide', 'capture', 'diagnostic', 'upgrade', 'backup'],
   'vms-u':   ['service_view', 'commands', 'guide', 'capture', 'diagnostic', 'upgrade', 'backup'],
-  'vms-b':   ['service_view', 'commands', 'guide', 'capture', 'diagnostic'],
+  'vms-b':   ['service_view', 'commands', 'guide', 'capture', 'diagnostic', 'runtime_clean'],
   'egs':     ['service_view', 'commands', 'guide', 'capture'],
   'pms':     ['service_view', 'commands', 'guide', 'capture'],
   'other':   ['service_view', 'commands', 'guide', 'capture']
@@ -1646,6 +1686,8 @@ function setConnected(c, host, port, type) {
     if (btnUpgDis) { btnUpgDis.classList.remove('btn-disabled-l2'); btnUpgDis.disabled = false; btnUpgDis.title = ''; }
     var btnBkDis = document.getElementById('btnBackup');
     if (btnBkDis) { btnBkDis.classList.remove('btn-disabled-l2'); btnBkDis.disabled = false; btnBkDis.title = ''; }
+    var btnRCDis = document.getElementById('btnRuntimeClean');
+    if (btnRCDis) { btnRCDis.classList.remove('btn-disabled-l2'); btnRCDis.disabled = false; btnRCDis.title = ''; }
     updateTopbarBtns();
   }
 }
@@ -2713,11 +2755,14 @@ function setLevel2Gating(state) {
   var sepUpg = document.getElementById('sepUpgrade');
   var btnBk = document.getElementById('btnBackup');
   var sepBk = document.getElementById('sepBackup');
+  var btnRC = document.getElementById('btnRuntimeClean');
+  var sepRC = document.getElementById('sepRuntimeClean');
   // 按产品类型功能矩阵决定按钮是否参与显示（不参与则彻底隐藏）
   var fCap = typeHasFeature('capture');
   var fDiag = typeHasFeature('diagnostic');
   var fUpg = typeHasFeature('upgrade');
   var fBk = typeHasFeature('backup');
+  var fRC = typeHasFeature('runtime_clean');
   var fLevel2 = NEED_LEVEL2_TYPES.indexOf(serverType) >= 0;
 
   // 设置全局 needLevel2 标志（供 saveCurrentSession 保存）
@@ -2753,6 +2798,7 @@ function setLevel2Gating(state) {
   setBtn(btnDiag, sepDiag, fDiag, featShow, featDisabled, featTitle);
   setBtn(btnUpg, sepUpg, fUpg, featShow, featDisabled, featTitle);
   setBtn(btnBk, sepBk, fBk, featShow, featDisabled, featTitle);
+  setBtn(btnRC, sepRC, fRC, featShow, featDisabled, featTitle);
 
   updateCmdItemsState(state === 'restricted');
 }
@@ -3309,6 +3355,127 @@ function openBackup() {
 function closeBackup() {
   document.getElementById('backupLayer').classList.add('hidden');
   if (backupPollTimer) { clearInterval(backupPollTimer); backupPollTimer = null; }
+}
+
+// ================================================================
+//  Runtime 清理（VMS-B）
+// ================================================================
+var runtimeCleanPollTimer = null;
+
+function openRuntimeClean() {
+  if (!sessionId) { alert('请先连接服务器'); return; }
+  if (needLevel2) { return; }
+  if (serverType !== 'vms-b') { alert('Runtime 清理仅支持 VMS-B 系列设备'); return; }
+  // 重置视图
+  document.getElementById('runtimeCleanCheckView').style.display = '';
+  document.getElementById('runtimeCleanProgressView').style.display = 'none';
+  document.getElementById('runtimeCleanCheckResult').innerHTML = '<span style="font-size:13px;color:#8b949e">点击下方按钮检查空间占用</span>';
+  document.getElementById('btnRuntimeCleanCheck').style.display = '';
+  document.getElementById('btnRuntimeCleanStart').style.display = 'none';
+  document.getElementById('btnRuntimeCleanCheck').disabled = false;
+  document.getElementById('btnRuntimeCleanCheck').textContent = '检查空间';
+  document.getElementById('runtimeCleanLayer').classList.remove('hidden');
+}
+
+function closeRuntimeClean() {
+  document.getElementById('runtimeCleanLayer').classList.add('hidden');
+  if (runtimeCleanPollTimer) { clearInterval(runtimeCleanPollTimer); runtimeCleanPollTimer = null; }
+}
+
+async function checkRuntimeSpace() {
+  var btn = document.getElementById('btnRuntimeCleanCheck');
+  var result = document.getElementById('runtimeCleanCheckResult');
+  btn.disabled = true;
+  btn.textContent = '检查中...';
+  result.innerHTML = '<span style="font-size:13px;color:#8b949e"><span class="spinner" style="display:inline-block;vertical-align:middle;margin-right:6px"></span>正在检查 /var/runtime 空间占用...</span>';
+  try {
+    var r = await api('runtime_clean_check', { session_id: sessionId });
+    if (!r.ok) {
+      result.innerHTML = '<div style="font-size:13px;color:#f85149;margin-bottom:4px">检查失败</div><div style="font-size:12px;color:#6e7681">' + escHtml(r.error || '') + '</div>';
+      btn.disabled = false;
+      btn.textContent = '检查空间';
+      return;
+    }
+    var usageNum = parseInt(r.usage) || 0;
+    var color = r.need_clean ? '#f85149' : '#3fb950';
+    var icon = r.need_clean ? '⚠' : '✓';
+    result.innerHTML =
+      '<div style="font-size:28px;color:' + color + ';font-weight:700;margin-bottom:8px">' + icon + ' ' + escHtml(r.usage) + '</div>' +
+      '<div style="font-size:13px;color:#c9d1d9;margin-bottom:4px">' + escHtml(r.detail || '') + '</div>';
+    if (r.need_clean) {
+      document.getElementById('btnRuntimeCleanStart').style.display = '';
+      document.getElementById('btnRuntimeCleanCheck').style.display = 'none';
+    } else {
+      document.getElementById('btnRuntimeCleanStart').style.display = 'none';
+      document.getElementById('btnRuntimeCleanCheck').style.display = '';
+      btn.disabled = false;
+      btn.textContent = '重新检查';
+    }
+  } catch (e) {
+    result.innerHTML = '<div style="font-size:13px;color:#f85149;margin-bottom:4px">检查异常</div><div style="font-size:12px;color:#6e7681">' + escHtml(e.message || '') + '</div>';
+    btn.disabled = false;
+    btn.textContent = '检查空间';
+  }
+}
+
+async function startRuntimeClean() {
+  if (!confirm('确认开始 Runtime 清理？\n\n清理过程将：\n1. 停止所有业务服务\n2. 备份数据库\n3. 执行 VACUUM FULL / 导出导入\n4. 完成后自动重启设备\n\n请确保当前无业务操作进行中。')) return;
+  // 切换到进度视图
+  document.getElementById('runtimeCleanCheckView').style.display = 'none';
+  document.getElementById('runtimeCleanProgressView').style.display = '';
+  document.getElementById('runtimeCleanStageLabel').textContent = '上传脚本中...';
+  document.getElementById('runtimeCleanLogTail').textContent = '';
+  document.getElementById('btnRuntimeCleanClose2').disabled = true;
+  try {
+    var r = await api('runtime_clean_start', { session_id: sessionId });
+    if (!r.ok) {
+      alert('启动清理失败: ' + (r.error || ''));
+      // 回到检查视图
+      document.getElementById('runtimeCleanCheckView').style.display = '';
+      document.getElementById('runtimeCleanProgressView').style.display = 'none';
+      return;
+    }
+    // 开始轮询
+    if (runtimeCleanPollTimer) clearInterval(runtimeCleanPollTimer);
+    runtimeCleanPollTimer = setInterval(pollRuntimeCleanStatus, 1000);
+  } catch (e) {
+    alert('启动清理异常: ' + e.message);
+    document.getElementById('runtimeCleanCheckView').style.display = '';
+    document.getElementById('runtimeCleanProgressView').style.display = 'none';
+  }
+}
+
+async function pollRuntimeCleanStatus() {
+  if (document.getElementById('runtimeCleanLayer').classList.contains('hidden')) return;
+  try {
+    var r = await api('runtime_clean_status', { session_id: sessionId });
+    if (!r.ok || !r.status) return;
+    var st = r.status;
+    document.getElementById('runtimeCleanTimer').textContent = st.elapsed || 0;
+    if (st.log_tail) {
+      document.getElementById('runtimeCleanLogTail').textContent = st.log_tail;
+      // 自动滚动到底部
+      var logEl = document.getElementById('runtimeCleanLogTail');
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    var stageLabels = {
+      'uploading': '上传脚本中...',
+      'chmod': '授予执行权限...',
+      'running': '执行清理中...',
+      'done': '清理完成',
+      'error': '清理失败',
+    };
+    document.getElementById('runtimeCleanStageLabel').textContent = stageLabels[st.stage] || st.stage;
+    if (st.stage === 'done') {
+      if (runtimeCleanPollTimer) { clearInterval(runtimeCleanPollTimer); runtimeCleanPollTimer = null; }
+      document.getElementById('btnRuntimeCleanClose2').disabled = false;
+      document.getElementById('runtimeCleanStageLabel').innerHTML = '<span style="color:#3fb950;font-weight:600">清理完成，设备将自动重启</span>';
+    } else if (st.stage === 'error') {
+      if (runtimeCleanPollTimer) { clearInterval(runtimeCleanPollTimer); runtimeCleanPollTimer = null; }
+      document.getElementById('btnRuntimeCleanClose2').disabled = false;
+      document.getElementById('runtimeCleanStageLabel').innerHTML = '<span style="color:#f85149;font-weight:600">清理失败</span>';
+    }
+  } catch (e) {}
 }
 
 async function refreshBackupList() {

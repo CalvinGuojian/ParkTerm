@@ -205,7 +205,7 @@ SERVER_TYPES = {
         "default_port": 7777,
         "need_level2": True,
         "needs_ssh_enable": False,
-        "features": FEATURE_ALL + ["diagnostic"],
+        "features": FEATURE_ALL + ["diagnostic", "runtime_clean"],
     },
     "egs": {
         "label": "EGS系列",
