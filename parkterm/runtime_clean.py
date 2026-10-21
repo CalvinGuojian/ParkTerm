@@ -349,23 +349,25 @@ class RuntimeCleanManager:
                 log = self._run_cmd(f"cat {log_file} 2>/dev/null", timeout=15)
                 self._run_cmd(f"rm -f {log_file} {pid_file}", timeout=10)
 
-                # 检查成功标志
-                if "清理成功完成" in log or "reboot" in log.lower():
+                # 检查成功标志（宽匹配：清理完成/清理成功/reboot/重启）
+                if any(kw in log for kw in ("清理完成", "清理成功", "无需清理")) or \
+                   "reboot" in log.lower() or "重启" in log:
                     self._set(log_tail=log.strip()[-500:])
                     return
-                # 检查失败标志
-                if "脚本执行失败" in log or "ERROR" in log:
+                # 检查失败标志（仅在无成功标志时才判失败）
+                if "脚本执行失败" in log:
                     raise RuntimeError(f"清理脚本执行失败: {log[-400:]}")
-                # 退出但无明确标志，检查退出码
-                # 如果日志中有 "无需清理" 也算正常完成
-                if "无需清理" in log:
-                    self._set(log_tail=log.strip()[-500:])
-                    return
                 # 默认视为完成（脚本最后会 reboot，进程退出可能是因为 reboot）
                 logger.info("clean script exited, checking log for result")
                 self._set(log_tail=log.strip()[-500:])
                 return
             else:
+                # SSH 可能因设备重启而断开，先检查日志是否已有成功标志
+                log = self._run_cmd(f"cat {log_file} 2>/dev/null", timeout=10)
+                if log and (any(kw in log for kw in ("清理完成", "清理成功", "无需清理")) or
+                            "reboot" in log.lower() or "重启" in log):
+                    self._set(log_tail=log.strip()[-500:])
+                    return
                 no_pid_rounds += 1
                 if no_pid_rounds >= 5:
                     raise RuntimeError("无法获取清理进程状态（命令被拦截），请确认已进入二级环境")

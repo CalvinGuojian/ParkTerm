@@ -673,7 +673,7 @@ body.light-theme .spinner{border-color:#d0d7de;border-top-color:#0969da}
       <button class="login-btn" id="btnConnectSerial" onclick="doConnect()">连 接</button>
     </div></div>
   </div>
-  <button id="btnCheckUpdate" onclick="checkAppUpdate(true)" title="检查更新" style="position:absolute;left:16px;bottom:12px;background:none;border:none;color:#6e7681;cursor:pointer;display:flex;align-items:center;gap:4px;font-size:12px;padding:4px 6px;border-radius:6px;transition:color .2s">
+  <button id="btnCheckUpdate" onclick="onCheckUpdateClick()" title="检查更新" style="position:absolute;left:16px;bottom:12px;background:none;border:none;color:#6e7681;cursor:pointer;display:flex;align-items:center;gap:4px;font-size:12px;padding:4px 6px;border-radius:6px;transition:color .2s">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
     <span>检查更新</span>
   </button>
@@ -950,7 +950,7 @@ body.light-theme .spinner{border-color:#d0d7de;border-top-color:#0969da}
 
 <!-- Runtime 清理弹窗 -->
 <div class="cap-layer hidden" id="runtimeCleanLayer">
-  <div class="capture-new-card" style="width:420px;max-width:92%;padding:20px">
+  <div class="capture-new-card" style="width:860px;max-width:96%;padding:22px">
     <!-- 检查视图 -->
     <div id="runtimeCleanCheckView">
       <div class="login-logo" style="margin-bottom:12px">
@@ -3393,13 +3393,13 @@ async function checkRuntimeSpace() {
     var sizeMb = r.size_mb || 0;
     if (r.need_clean) {
       result.innerHTML =
-        '<div style="font-size:13px;color:#c9d1d9;line-height:2">当前runtime目录占用空间 ' + sizeMb + 'M，</div>' +
-        '<div style="font-size:13px;color:#f85149;line-height:2">大于目录上限600M，请点击空间清理按钮即可自动清理。</div>';
+        '<div style="font-size:14px;color:#c9d1d9;line-height:2">当前runtime目录占用空间 ' + sizeMb + 'M</div>' +
+        '<div style="font-size:14px;color:#f85149;line-height:2">大于目录上限600M，请点击空间清理按钮即可自动清理</div>';
       document.getElementById('btnRuntimeCleanStart').style.display = '';
     } else {
       result.innerHTML =
-        '<div style="font-size:13px;color:#c9d1d9;line-height:2">当前runtime目录占用空间 ' + sizeMb + 'M，</div>' +
-        '<div style="font-size:13px;color:#3fb950;line-height:2">小于目录上限600M，无需清理。</div>';
+        '<div style="font-size:14px;color:#c9d1d9;line-height:2">当前runtime目录占用空间 ' + sizeMb + 'M</div>' +
+        '<div style="font-size:14px;color:#3fb950;line-height:2">小于目录上限600M，无需清理</div>';
       document.getElementById('btnRuntimeCleanStart').style.display = 'none';
     }
   } catch (e) {
@@ -4464,6 +4464,36 @@ function closeFeedback() {
 var updatePollTimer = null;
 var updateInfo = null;
 
+// 点击"检查更新"按钮：如果已有新版本信息则直接弹窗，否则重新检查
+function onCheckUpdateClick() {
+  if (updateInfo && updateInfo.hasUpdate) {
+    var layer = document.getElementById('updateLayer');
+    var infoView = document.getElementById('updateInfoView');
+    var progressView = document.getElementById('updateProgressView');
+    var resultView = document.getElementById('updateResultView');
+    var content = document.getElementById('updateInfoContent');
+    var actions = document.getElementById('updateInfoActions');
+    var res = updateInfo;
+    infoView.style.display = '';
+    progressView.style.display = 'none';
+    resultView.style.display = 'none';
+    var forceHtml = res.forceUpdate ? '<div style="font-size:12px;color:#f85149;margin-top:8px;font-weight:600">此版本为强制更新，必须更新后才能继续使用</div>' : '';
+    content.innerHTML =
+      '<div style="font-size:14px;color:#c9d1d9;margin-bottom:4px">发现新版本</div>' +
+      '<div style="font-size:20px;color:#58a6ff;font-weight:700;margin-bottom:12px">' + escHtml(res.version || '') + '</div>' +
+      '<div style="font-size:12px;color:#6e7681;margin-bottom:8px">当前版本：' + escHtml(res.currentVersion || '') + '</div>' +
+      '<div style="text-align:left;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 10px;max-height:120px;overflow:auto;font-size:11px;color:#8b949e;line-height:1.6;white-space:pre-wrap">' + escHtml(res.changelog || '无更新说明') + '</div>' +
+      forceHtml;
+    actions.style.display = '';
+    document.getElementById('btnUpdateCancel').style.display = res.forceUpdate ? 'none' : '';
+    document.getElementById('btnUpdateNow').style.display = '';
+    document.getElementById('btnUpdateNow').textContent = '立即更新';
+    layer.classList.remove('hidden');
+  } else {
+    checkAppUpdate(true);
+  }
+}
+
 function checkAppUpdate(manual) {
   var layer = document.getElementById('updateLayer');
   var infoView = document.getElementById('updateInfoView');
@@ -4506,7 +4536,14 @@ function checkAppUpdate(manual) {
         document.getElementById('btnUpdateCancel').style.display = res.forceUpdate ? 'none' : '';
         document.getElementById('btnUpdateNow').style.display = '';
         document.getElementById('btnUpdateNow').textContent = '立即更新';
-        if (!manual) layer.classList.remove('hidden');
+        if (!manual) {
+          // 不自动弹窗，仅更新左下角按钮文字
+          var btn = document.getElementById('btnCheckUpdate');
+          var btnSpan = btn.querySelector('span');
+          if (btnSpan) btnSpan.textContent = '发现新版本！';
+          btn.style.color = '#f0883e';
+          btn.title = '发现新版本：' + (res.version || '') + '，点击查看详情';
+        }
       } else {
         if (manual) {
           content.innerHTML = '<div style="font-size:14px;color:#3fb950;margin-bottom:4px">已是最新版本</div><div style="font-size:12px;color:#6e7681">当前版本：' + escHtml(res.currentVersion || '') + '</div>';
@@ -4632,7 +4669,7 @@ function applyAppUpdate() {
     });
 }
 
-// 启动时自动检查更新（静默，有新版才弹窗）
+// 启动时自动检查更新（静默，有新版仅更新按钮文字，不弹窗）
 setTimeout(function() { checkAppUpdate(false); }, 2000);
 
 </script>
