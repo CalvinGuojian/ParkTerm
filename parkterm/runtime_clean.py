@@ -9,7 +9,6 @@ VMS-B runtime 清理模块。
   5. running : 后台执行 sh clean_runtime_new.sh，轮询日志
   6. done    : 清理完成
 """
-import hashlib
 import logging
 import os
 import re
@@ -24,9 +23,8 @@ logger = logging.getLogger("parkterm")
 SCRIPT_CLEAN = "clean_runtime_new.sh"
 SCRIPT_DBINOUT = "db_inout_new.sh"
 
-# clean_runtime_new.sh 的 MD5 校验值（动态计算本地文件，与远程比对）
-# 如需固定校验值，可改为硬编码；当前策略：本地 MD5 == 远程 MD5 即通过
-SCRIPT_CLEAN_MD5 = "aef6c638677a41415c992f83af260caa"
+# clean_runtime_new.sh 的 MD5 校验值
+SCRIPT_CLEAN_MD5 = "e19603b79cd4c69319664f19b3064256"
 
 # 清理阈值（MB）：/var/runtime 已用空间 >= 此值则执行清理
 RUNTIME_CLEAN_THRESHOLD_MB = 600
@@ -254,26 +252,17 @@ class RuntimeCleanManager:
     # MD5 校验
     # ------------------------------------------------------------
     def _verify_md5(self, upload_dir):
-        """校验远程 clean_runtime_new.sh 的 MD5 是否与本地一致（上传完整性校验）。"""
+        """校验远程 clean_runtime_new.sh 的 MD5 是否与预期一致。"""
         self._set(stage="verifying", percent=32, log_tail="校验脚本 MD5...")
 
         remote_clean = f"{upload_dir}/{SCRIPT_CLEAN}"
-        local_clean = config.resource_path(f"parkterm/{SCRIPT_CLEAN}")
-
-        # 计算本地文件 MD5
-        local_md5 = ""
-        try:
-            with open(local_clean, "rb") as f:
-                local_md5 = hashlib.md5(f.read()).hexdigest()
-        except Exception as e:
-            raise RuntimeError(f"无法计算本地脚本 MD5: {e}")
 
         # 使用 md5sum 命令计算远程文件 MD5
         out = self._run_cmd(f"md5sum {remote_clean} 2>/dev/null", timeout=15)
         if "Not Support Cmd Yet!" in out:
             raise RuntimeError("当前环境不支持 md5sum（一级受限），请先进入二级后重试")
 
-        # 解析 md5sum 输出：格式为 "aef6c638677a41415c992f83af260caa  /var/coredump/clean_runtime_new.sh"
+        # 解析 md5sum 输出：格式为 "e19603b79cd4c69319664f19b3064256  /var/coredump/clean_runtime_new.sh"
         remote_md5 = ""
         for line in out.strip().split("\n"):
             parts = line.split()
@@ -284,13 +273,13 @@ class RuntimeCleanManager:
         if not remote_md5:
             raise RuntimeError("无法获取远程脚本 MD5，请确认已进入二级环境")
 
-        if remote_md5 != local_md5:
+        if remote_md5 != SCRIPT_CLEAN_MD5:
             raise RuntimeError(
-                f"脚本 MD5 校验不通过（本地: {local_md5}，远程: {remote_md5}），"
+                f"脚本 MD5 校验不通过（期望: {SCRIPT_CLEAN_MD5}，实际: {remote_md5}），"
                 "请重新上传后再次执行"
             )
 
-        logger.info("MD5 verified: local=%s remote=%s", local_md5, remote_md5)
+        logger.info("MD5 verified: %s == %s", remote_md5, SCRIPT_CLEAN_MD5)
         self._set(log_tail="脚本 MD5 校验通过")
 
     # ------------------------------------------------------------
