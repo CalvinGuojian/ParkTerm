@@ -322,6 +322,7 @@ class RuntimeCleanManager:
 
         t0 = time.time()
         no_pid_rounds = 0
+        last_log = ""          # 缓存最后一次非空日志
         while time.time() - t0 < RUNTIME_CLEAN_TIMEOUT:
             time.sleep(RUNTIME_CLEAN_POLL_INTERVAL)
 
@@ -329,6 +330,7 @@ class RuntimeCleanManager:
             tail = self._run_cmd(f"tail -10 {log_file} 2>/dev/null", timeout=10)
             if tail:
                 self._set(log_tail=tail.strip()[-500:])
+                last_log = tail.strip()
 
             # 进程存活检查
             pid_out = self._run_cmd(f"cat {pid_file} 2>/dev/null", timeout=10)
@@ -347,26 +349,38 @@ class RuntimeCleanManager:
                     continue
                 # 进程退出 → 读取完整日志判断结果
                 log = self._run_cmd(f"cat {log_file} 2>/dev/null", timeout=15)
+                if log:
+                    last_log = log.strip()
                 self._run_cmd(f"rm -f {log_file} {pid_file}", timeout=10)
 
-                # 检查成功标志（宽匹配：清理完成/清理成功/reboot/重启）
-                if any(kw in log for kw in ("清理完成", "清理成功", "无需清理")) or \
-                   "reboot" in log.lower() or "重启" in log:
-                    self._set(log_tail=log.strip()[-500:])
+                # 检查失败标志（优先判断）
+                if "脚本执行失败" in last_log:
+                    raise RuntimeError(f"清理脚本执行失败: {last_log[-400:]}")
+                # 检查成功标志（宽匹配：清理完成/清理成功/reboot/重启/无需清理）
+                if any(kw in last_log for kw in ("清理完成", "清理成功", "无需清理")) or \
+                   "reboot" in last_log.lower() or "重启" in last_log:
+                    self._set(log_tail=last_log[-500:])
                     return
-                # 检查失败标志（仅在无成功标志时才判失败）
-                if "脚本执行失败" in log:
-                    raise RuntimeError(f"清理脚本执行失败: {log[-400:]}")
                 # 默认视为完成（脚本最后会 reboot，进程退出可能是因为 reboot）
-                logger.info("clean script exited, checking log for result")
-                self._set(log_tail=log.strip()[-500:])
+                logger.info("clean script exited, treating as done")
+                self._set(log_tail=last_log[-500:])
                 return
             else:
-                # SSH 可能因设备重启而断开，先检查日志是否已有成功标志
-                log = self._run_cmd(f"cat {log_file} 2>/dev/null", timeout=10)
-                if log and (any(kw in log for kw in ("清理完成", "清理成功", "无需清理")) or
-                            "reboot" in log.lower() or "重启" in log):
-                    self._set(log_tail=log.strip()[-500:])
+                # SSH 可能因设备重启而断开，所有命令返回空
+                # 用缓存的 last_log 判断是否已清理完成
+                if last_log:
+                    # 检查失败标志
+                    if "脚本执行失败" in last_log:
+                        raise RuntimeError(f"清理脚本执行失败: {last_log[-400:]}")
+                    # 检查成功标志
+                    if any(kw in last_log for kw in ("清理完成", "清理成功", "无需清理")) or \
+                       "reboot" in last_log.lower() or "重启" in last_log:
+                        logger.info("SSH disconnected, last_log indicates success")
+                        self._set(log_tail=last_log[-500:])
+                        return
+                    # 日志无明确标志但脚本已运行过，设备重启导致断连 → 视为成功
+                    logger.info("SSH disconnected after script ran, treating as success (device rebooting)")
+                    self._set(log_tail=last_log[-500:])
                     return
                 no_pid_rounds += 1
                 if no_pid_rounds >= 5:
