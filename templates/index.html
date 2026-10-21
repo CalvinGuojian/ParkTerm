@@ -950,7 +950,7 @@ body.light-theme .spinner{border-color:#d0d7de;border-top-color:#0969da}
 
 <!-- Runtime 清理弹窗 -->
 <div class="cap-layer hidden" id="runtimeCleanLayer">
-  <div class="capture-new-card" style="width:360px;max-width:92%;padding:20px">
+  <div class="capture-new-card" style="width:420px;max-width:92%;padding:20px">
     <!-- 检查视图 -->
     <div id="runtimeCleanCheckView">
       <div class="login-logo" style="margin-bottom:12px">
@@ -3392,10 +3392,14 @@ async function checkRuntimeSpace() {
     }
     var sizeMb = r.size_mb || 0;
     if (r.need_clean) {
-      result.innerHTML = '<div style="font-size:13px;color:#f85149;line-height:1.8">当前runtime目录占用空间 ' + sizeMb + 'M，大于目录上限600M，请点击空间清理按钮即可自动清理。</div>';
+      result.innerHTML =
+        '<div style="font-size:13px;color:#c9d1d9;line-height:2">当前runtime目录占用空间 ' + sizeMb + 'M，</div>' +
+        '<div style="font-size:13px;color:#f85149;line-height:2">大于目录上限600M，请点击空间清理按钮即可自动清理。</div>';
       document.getElementById('btnRuntimeCleanStart').style.display = '';
     } else {
-      result.innerHTML = '<div style="font-size:13px;color:#3fb950;line-height:1.8">当前runtime目录占用空间 ' + sizeMb + 'M，小于目录上限600M，无需清理。</div>';
+      result.innerHTML =
+        '<div style="font-size:13px;color:#c9d1d9;line-height:2">当前runtime目录占用空间 ' + sizeMb + 'M，</div>' +
+        '<div style="font-size:13px;color:#3fb950;line-height:2">小于目录上限600M，无需清理。</div>';
       document.getElementById('btnRuntimeCleanStart').style.display = 'none';
     }
   } catch (e) {

@@ -24,7 +24,8 @@ logger = logging.getLogger("parkterm")
 SCRIPT_CLEAN = "clean_runtime_new.sh"
 SCRIPT_DBINOUT = "db_inout_new.sh"
 
-# clean_runtime_new.sh 的 MD5 校验值
+# clean_runtime_new.sh 的 MD5 校验值（动态计算本地文件，与远程比对）
+# 如需固定校验值，可改为硬编码；当前策略：本地 MD5 == 远程 MD5 即通过
 SCRIPT_CLEAN_MD5 = "aef6c638677a41415c992f83af260caa"
 
 # 清理阈值（MB）：/var/runtime 已用空间 >= 此值则执行清理
@@ -213,6 +214,7 @@ class RuntimeCleanManager:
         remote_clean = f"{upload_dir}/{SCRIPT_CLEAN}"
         remote_dbinout = f"{upload_dir}/{SCRIPT_DBINOUT}"
 
+        # 优先 SFTP（带进度回调），失败则回退到 FileManager（SCP/base64 三级降级）
         try:
             sftp = self.session.get_sftp()
             try:
@@ -232,17 +234,40 @@ class RuntimeCleanManager:
                 except Exception:
                     pass
             logger.info("scripts uploaded to %s", upload_dir)
-        except Exception as e:
-            raise RuntimeError(f"脚本上传失败: {e}")
+        except Exception as sftp_err:
+            # SFTP 失败（如 Channel closed），回退到 FileManager
+            logger.warning("runtime_clean SFTP upload failed: %s; trying FileManager", sftp_err)
+            self._set(log_tail="SFTP 不可用，使用 SCP 上传...")
+            fm = getattr(self.session, "file_manager", None)
+            if fm is None:
+                raise RuntimeError(f"脚本上传失败（SFTP 不可用且文件管理器不可用）: {sftp_err}")
+            try:
+                fm.upload(local_clean, remote_clean)
+                self._set(percent=20, log_tail=f"已上传 {SCRIPT_CLEAN} → {remote_clean}")
+                fm.upload(local_dbinout, remote_dbinout)
+                self._set(percent=30, log_tail=f"已上传 {SCRIPT_DBINOUT} → {remote_dbinout}")
+                logger.info("scripts uploaded via FileManager to %s", upload_dir)
+            except Exception as e:
+                raise RuntimeError(f"脚本上传失败: {e}")
 
     # ------------------------------------------------------------
     # MD5 校验
     # ------------------------------------------------------------
     def _verify_md5(self, upload_dir):
-        """校验远程 clean_runtime_new.sh 的 MD5 是否与预期一致。"""
+        """校验远程 clean_runtime_new.sh 的 MD5 是否与本地一致（上传完整性校验）。"""
         self._set(stage="verifying", percent=32, log_tail="校验脚本 MD5...")
 
         remote_clean = f"{upload_dir}/{SCRIPT_CLEAN}"
+        local_clean = config.resource_path(f"parkterm/{SCRIPT_CLEAN}")
+
+        # 计算本地文件 MD5
+        local_md5 = ""
+        try:
+            with open(local_clean, "rb") as f:
+                local_md5 = hashlib.md5(f.read()).hexdigest()
+        except Exception as e:
+            raise RuntimeError(f"无法计算本地脚本 MD5: {e}")
+
         # 使用 md5sum 命令计算远程文件 MD5
         out = self._run_cmd(f"md5sum {remote_clean} 2>/dev/null", timeout=15)
         if "Not Support Cmd Yet!" in out:
@@ -259,13 +284,13 @@ class RuntimeCleanManager:
         if not remote_md5:
             raise RuntimeError("无法获取远程脚本 MD5，请确认已进入二级环境")
 
-        if remote_md5 != SCRIPT_CLEAN_MD5.lower():
+        if remote_md5 != local_md5:
             raise RuntimeError(
-                f"脚本 MD5 校验不通过（期望: {SCRIPT_CLEAN_MD5}，实际: {remote_md5}），"
+                f"脚本 MD5 校验不通过（本地: {local_md5}，远程: {remote_md5}），"
                 "请重新上传后再次执行"
             )
 
-        logger.info("MD5 verified: %s == %s", remote_md5, SCRIPT_CLEAN_MD5)
+        logger.info("MD5 verified: local=%s remote=%s", local_md5, remote_md5)
         self._set(log_tail="脚本 MD5 校验通过")
 
     # ------------------------------------------------------------
