@@ -337,17 +337,20 @@ class SerialSession:
                     self.send(ctrl)
                     time.sleep(0.1)
                 self.send("\r")
-                buf2, prompt2 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 3.0)
+                # 等待并让设备输出充分静默：Ctrl 序列若被 TTY 吞掉，设备可能
+                # 迟迟提交一次失败登录并重新提示，必须等它尘埃落定再判断，
+                # 否则残留的登录会话会与后续输入交错（Login incorrect 刷屏的根源）
+                buf2, prompt2 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 3.0, quiet=1.0)
                 buf += buf2
                 if prompt2 in _PASSWD_MARKERS:
                     if password:
                         self.send(password + "\r")
                 elif prompt2 in _USERNAME_MARKERS:
-                    # Ctrl 序列可能被串口 TTY 吞掉（canonical 模式）→ 在当前
-                    # 用户名提示下用普通回车方式重试一次
+                    # Ctrl 序列无效（用户名被吞/被删）→ 在当前用户名提示下
+                    # 用普通回车方式重试一次
                     logger.warning("Serial level2: ctrl seq ineffective, retrying plain Enter")
                     self.send(config.LEVEL2_USERNAME + "\r")
-                    buf3, prompt3 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 3.0)
+                    buf3, prompt3 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 3.0, quiet=1.0)
                     buf += buf3
                     if prompt3 in _PASSWD_MARKERS:
                         if password:
@@ -361,14 +364,14 @@ class SerialSession:
                 else:
                     # 无提示 → 探测回车后再识别一次
                     self.send("\r")
-                    buf3, prompt3 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 2.5)
+                    buf3, prompt3 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 2.5, quiet=1.0)
                     buf += buf3
                     if prompt3 in _PASSWD_MARKERS:
                         if password:
                             self.send(password + "\r")
                     elif prompt3 in _USERNAME_MARKERS:
                         self.send(config.LEVEL2_USERNAME + "\r")
-                        buf4, prompt4 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 3.0)
+                        buf4, prompt4 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 3.0, quiet=1.0)
                         buf += buf4
                         if prompt4 in _PASSWD_MARKERS:
                             if password:
@@ -389,20 +392,21 @@ class SerialSession:
                     text = buf.replace("\r", "").strip()
                     return {"ok": False, "output": f"未收到登录提示: {text[:200]}"}
 
-            # 读取登录结果：检测到二级欢迎横幅即提前结束（与 SSH 一致）
+            # 读取登录结果（与 SSH 一致：检测到欢迎横幅提前结束）。
+            # 串口下窗口加长到 4 秒并以静默收尾：设备校验可能稍慢，
+            # 必须确保迟到的 "Login incorrect" 也被捕获，避免误报成功。
             t0 = time.time()
-            while time.time() - t0 < config.LEVEL2_RESPONSE_WAIT:
-                chunk = self._read_available(timeout=0.3, quiet=0.25)
+            while time.time() - t0 < 4.0:
+                chunk = self._read_available(timeout=0.4, quiet=0.5)
                 if chunk:
                     buf += chunk
                     if "Welcome to" in buf:
-                        time.sleep(0.3)
-                        buf += self._read_available(timeout=0.5, quiet=0.3)
+                        # 横幅后再稍候确认无失败信息
+                        time.sleep(0.4)
+                        buf += self._read_available(timeout=0.8, quiet=0.4)
                         break
                 else:
                     time.sleep(0.03)
-            # 兜底再读一次静默输出
-            buf += self._read_available(timeout=0.5, quiet=0.4)
 
             text = buf.replace("\r", "").strip()
             failed = any(m in text.lower() for m in config.LEVEL2_FAIL_MARKERS)
@@ -416,10 +420,11 @@ class SerialSession:
             self._exclusive_owner = False
             self._exclusive_read.clear()
 
-    def _wait_prompt(self, prompts, timeout=3.0):
+    def _wait_prompt(self, prompts, timeout=3.0, quiet=0.6):
         """读取直到最后一行以某个提示符结尾，返回 (buffer, matched_prompt)。
 
         只匹配最后一行（基于行尾判断），避免已提交输入的回显被误认为新提示符。
+        quiet：无新数据多久后提前结束（值越大等待越充分，用于吸收设备迟到的响应）。
         """
         buf = ""
         t0 = time.time()
@@ -441,7 +446,7 @@ class SerialSession:
                 for p in prompts:
                     if last.endswith(p):
                         return buf, p
-            elif time.time() - last_data > 0.6:
+            elif time.time() - last_data > quiet:
                 break
             else:
                 time.sleep(0.03)
