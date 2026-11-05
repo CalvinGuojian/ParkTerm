@@ -2,10 +2,11 @@
 VMS-B runtime 清理模块。
 
 流程（后台线程执行，前端轮询 /api/runtime_clean_status 获取进度）：
-  1. check   : 执行 df -m 检查 /var/runtime 已用空间（MB），与 600MB 阈值比较
-  2. upload  : 根据设备型号（B2xx→/var/coredump, B5xx→/var/fs_disk）上传两个脚本
+  1. check   : 检测设备型号，df -m 检查 /var/runtime 已用空间，与设备对应阈值比较
+               B500: 2560MB, B200: 600MB
+  2. upload  : 根据设备型号（B2xx→/var/coredump, B5xx→/var/fs_disk）上传 clean_runtime_new.sh
   3. verify  : MD5 校验 clean_runtime_new.sh 完整性
-  4. chmod   : chmod 777 clean_runtime_new.sh db_inout_new.sh
+  4. chmod   : chmod 777 clean_runtime_new.sh
   5. running : 后台执行 sh clean_runtime_new.sh，轮询日志
   6. done    : 清理完成
 """
@@ -21,13 +22,13 @@ logger = logging.getLogger("parkterm")
 
 # 脚本远程文件名
 SCRIPT_CLEAN = "clean_runtime_new.sh"
-SCRIPT_DBINOUT = "db_inout_new.sh"
 
 # clean_runtime_new.sh 的 MD5 校验值
-SCRIPT_CLEAN_MD5 = "e19603b79cd4c69319664f19b3064256"
+SCRIPT_CLEAN_MD5 = "603e9758593caace2e2f6e0fedc4d792"
 
-# 清理阈值（MB）：/var/runtime 已用空间 >= 此值则执行清理
-RUNTIME_CLEAN_THRESHOLD_MB = 600
+# 清理阈值（MB）：按设备型号区分（与脚本内逻辑一致）
+DB_THRESHOLD_B500 = 2560
+DB_THRESHOLD_DEFAULT = 600
 
 # 清理日志远程路径
 CLEAN_LOG_REMOTE = "/var/runtime/manual_clean_runtime.log"
@@ -76,12 +77,21 @@ class RuntimeCleanManager:
     # 空间检查（同步，前端等待结果）
     # ============================================================
     def check_space(self):
-        """执行 df -m 检查 /var/runtime 已用空间（MB），与 600MB 阈值比较。
+        """检测设备型号并执行 df -m 检查 /var/runtime 已用空间（MB）。
 
-        返回 dict: {size_mb: int, need_clean: bool, detail: str}
+        阈值与脚本内规则一致：B500: 2560MB, B200: 600MB。
+
+        返回 dict: {size_mb: int, threshold_mb: int, need_clean: bool, detail: str}
         """
         self._set(stage="checking", error="", started=time.time(), finished=None)
         try:
+            # 检测设备型号，确定阈值（与脚本 check_runtime_space 逻辑一致）
+            board_out = self._run_cmd("cat /proc/board_type 2>/dev/null", timeout=10)
+            if "VMS-B500" in board_out or "VMS-B5" in board_out:
+                threshold_mb = DB_THRESHOLD_B500
+            else:
+                threshold_mb = DB_THRESHOLD_DEFAULT
+
             out = self._run_cmd("df -m /var/runtime 2>/dev/null", timeout=15)
             if "Not Support Cmd Yet!" in out:
                 raise RuntimeError("当前环境不支持 df 命令（一级受限），请先进入二级后重试")
@@ -106,17 +116,19 @@ class RuntimeCleanManager:
             if size_mb is None:
                 raise RuntimeError("无法解析 /var/runtime 空间占用，请确认已进入二级环境")
 
-            need_clean = size_mb >= RUNTIME_CLEAN_THRESHOLD_MB
+            need_clean = size_mb >= threshold_mb
             self._set(usage=f"{size_mb}M", need_clean=need_clean,
                       percent=0, stage="idle", finished=time.time())
-            logger.info("runtime space check: %dMB, need_clean=%s", size_mb, need_clean)
+            logger.info("runtime space check: %dMB, threshold=%dMB, need_clean=%s",
+                        size_mb, threshold_mb, need_clean)
             return {
                 "size_mb": size_mb,
+                "threshold_mb": threshold_mb,
                 "need_clean": need_clean,
                 "detail": f"/var/runtime 已用 {size_mb}MB，" +
-                          (f"大于等于阈值 {RUNTIME_CLEAN_THRESHOLD_MB}MB，需要清理"
+                          (f"大于等于阈值 {threshold_mb}MB，需要清理"
                            if need_clean else
-                           f"小于阈值 {RUNTIME_CLEAN_THRESHOLD_MB}MB，无需清理"),
+                           f"小于阈值 {threshold_mb}MB，无需清理"),
             }
         except Exception as e:
             logger.error("runtime check_space error: %s", e, exc_info=True)
@@ -197,20 +209,16 @@ class RuntimeCleanManager:
     # 上传脚本
     # ------------------------------------------------------------
     def _upload_scripts(self, upload_dir):
-        """上传 clean_runtime_new.sh 和 db_inout_new.sh 到远程目录。"""
+        """上传 clean_runtime_new.sh 到远程目录。"""
         self._set(stage="uploading", percent=10, log_tail="上传脚本中...")
 
         # 获取本地脚本路径（兼容 PyInstaller 打包）
         local_clean = config.resource_path(f"parkterm/{SCRIPT_CLEAN}")
-        local_dbinout = config.resource_path(f"parkterm/{SCRIPT_DBINOUT}")
 
         if not os.path.isfile(local_clean):
             raise RuntimeError(f"本地脚本不存在: {local_clean}")
-        if not os.path.isfile(local_dbinout):
-            raise RuntimeError(f"本地脚本不存在: {local_dbinout}")
 
         remote_clean = f"{upload_dir}/{SCRIPT_CLEAN}"
-        remote_dbinout = f"{upload_dir}/{SCRIPT_DBINOUT}"
 
         # 优先 SFTP（带进度回调），失败则回退到 FileManager（SCP/base64 三级降级）
         try:
@@ -222,16 +230,13 @@ class RuntimeCleanManager:
                     pass
                 # 上传清理脚本
                 sftp.put(local_clean, remote_clean)
-                self._set(percent=20, log_tail=f"已上传 {SCRIPT_CLEAN} → {remote_clean}")
-                # 上传数据库脚本
-                sftp.put(local_dbinout, remote_dbinout)
-                self._set(percent=30, log_tail=f"已上传 {SCRIPT_DBINOUT} → {remote_dbinout}")
+                self._set(percent=30, log_tail=f"已上传 {SCRIPT_CLEAN} → {remote_clean}")
             finally:
                 try:
                     sftp.close()
                 except Exception:
                     pass
-            logger.info("scripts uploaded to %s", upload_dir)
+            logger.info("script uploaded to %s", upload_dir)
         except Exception as sftp_err:
             # SFTP 失败（如 Channel closed），回退到 FileManager
             logger.warning("runtime_clean SFTP upload failed: %s; trying FileManager", sftp_err)
@@ -241,10 +246,8 @@ class RuntimeCleanManager:
                 raise RuntimeError(f"脚本上传失败（SFTP 不可用且文件管理器不可用）: {sftp_err}")
             try:
                 fm.upload(local_clean, remote_clean)
-                self._set(percent=20, log_tail=f"已上传 {SCRIPT_CLEAN} → {remote_clean}")
-                fm.upload(local_dbinout, remote_dbinout)
-                self._set(percent=30, log_tail=f"已上传 {SCRIPT_DBINOUT} → {remote_dbinout}")
-                logger.info("scripts uploaded via FileManager to %s", upload_dir)
+                self._set(percent=30, log_tail=f"已上传 {SCRIPT_CLEAN} → {remote_clean}")
+                logger.info("script uploaded via FileManager to %s", upload_dir)
             except Exception as e:
                 raise RuntimeError(f"脚本上传失败: {e}")
 
@@ -286,17 +289,16 @@ class RuntimeCleanManager:
     # chmod
     # ------------------------------------------------------------
     def _chmod_scripts(self, upload_dir):
-        """chmod 777 两个脚本。"""
+        """chmod 777 清理脚本。"""
         self._set(stage="chmod", percent=35, log_tail="授予执行权限...")
 
         remote_clean = f"{upload_dir}/{SCRIPT_CLEAN}"
-        remote_dbinout = f"{upload_dir}/{SCRIPT_DBINOUT}"
 
-        out = self._run_cmd(f"chmod 777 {remote_clean} {remote_dbinout}", timeout=15)
+        out = self._run_cmd(f"chmod 777 {remote_clean}", timeout=15)
         if "Not Support Cmd Yet!" in out:
             raise RuntimeError("当前环境不支持 chmod（一级受限），请先进入二级后重试")
 
-        logger.info("chmod 777 done for scripts")
+        logger.info("chmod 777 done for script")
 
     # ------------------------------------------------------------
     # 执行清理脚本并轮询
@@ -352,15 +354,7 @@ class RuntimeCleanManager:
                 if log:
                     last_log = log.strip()
                 self._run_cmd(f"rm -f {log_file} {pid_file}", timeout=10)
-
-                # 检查失败标志（优先判断）
-                if "脚本执行失败" in last_log:
-                    raise RuntimeError(f"清理脚本执行失败: {last_log[-400:]}")
-                # 检查成功标志（宽匹配：清理完成/清理成功/reboot/重启/无需清理）
-                if any(kw in last_log for kw in ("清理完成", "清理成功", "无需清理")) or \
-                   "reboot" in last_log.lower() or "重启" in last_log:
-                    self._set(log_tail=last_log[-500:])
-                    return
+                self._judge_and_return(last_log)
                 # 默认视为完成（脚本最后会 reboot，进程退出可能是因为 reboot）
                 logger.info("clean script exited, treating as done")
                 self._set(log_tail=last_log[-500:])
@@ -369,24 +363,44 @@ class RuntimeCleanManager:
                 # SSH 可能因设备重启而断开，所有命令返回空
                 # 用缓存的 last_log 判断是否已清理完成
                 if last_log:
-                    # 检查失败标志
-                    if "脚本执行失败" in last_log:
-                        raise RuntimeError(f"清理脚本执行失败: {last_log[-400:]}")
-                    # 检查成功标志
-                    if any(kw in last_log for kw in ("清理完成", "清理成功", "无需清理")) or \
-                       "reboot" in last_log.lower() or "重启" in last_log:
-                        logger.info("SSH disconnected, last_log indicates success")
-                        self._set(log_tail=last_log[-500:])
-                        return
-                    # 日志无明确标志但脚本已运行过，设备重启导致断连 → 视为成功
-                    logger.info("SSH disconnected after script ran, treating as success (device rebooting)")
-                    self._set(log_tail=last_log[-500:])
-                    return
+                    logger.info("SSH disconnected after script ran, judging by last_log")
+                    self._judge_and_return(last_log)
                 no_pid_rounds += 1
                 if no_pid_rounds >= 5:
                     raise RuntimeError("无法获取清理进程状态（命令被拦截），请确认已进入二级环境")
 
         raise TimeoutError(f"清理超时（>{RUNTIME_CLEAN_TIMEOUT}s），请检查设备状态")
+
+    # ------------------------------------------------------------
+    # 结果判断（根据日志关键词判定成功/失败）
+    # ------------------------------------------------------------
+    def _judge_and_return(self, last_log):
+        """根据脚本日志关键词判断清理结果。
+
+        失败标志（优先判断，避免 "DO NOT reboot" 中的 reboot 误判为成功）：
+          中文: 脚本执行失败  英文: Script execution failed / clean failed
+        成功标志：
+          中文: 清理完成/清理成功/无需清理/重启
+          英文: Clean completed successfully / No clean needed / reboot
+        无明确标志时默认视为成功（脚本最后会 reboot，进程退出可能因 reboot）。
+        """
+        log = last_log or ""
+
+        # 检查失败标志（优先判断）
+        if "脚本执行失败" in log or "Script execution failed" in log or "clean failed" in log:
+            raise RuntimeError(f"清理脚本执行失败: {log[-400:]}")
+
+        # 检查成功标志（宽匹配）
+        if any(kw in log for kw in ("清理完成", "清理成功", "无需清理", "重启",
+                                    "Clean completed successfully", "No clean needed")) or \
+           "reboot" in log.lower():
+            self._set(log_tail=log[-500:])
+            return
+
+        # 默认视为完成（脚本最后会 reboot，进程退出可能是因为 reboot）
+        logger.info("clean script exited without explicit markers, treating as done")
+        self._set(log_tail=log[-500:])
+        return
 
     # ------------------------------------------------------------
     # 工具

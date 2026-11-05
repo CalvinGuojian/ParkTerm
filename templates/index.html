@@ -3391,15 +3391,16 @@ async function checkRuntimeSpace() {
       return;
     }
     var sizeMb = r.size_mb || 0;
+    var thresholdMb = r.threshold_mb || 600;
     if (r.need_clean) {
       result.innerHTML =
         '<div style="font-size:14px;color:#c9d1d9;line-height:2">当前runtime目录占用空间 ' + sizeMb + 'M</div>' +
-        '<div style="font-size:14px;color:#f85149;line-height:2">大于目录上限600M，请点击空间清理按钮即可自动清理</div>';
+        '<div style="font-size:14px;color:#f85149;line-height:2">大于目录上限' + thresholdMb + 'M，请点击空间清理按钮即可自动清理</div>';
       document.getElementById('btnRuntimeCleanStart').style.display = '';
     } else {
       result.innerHTML =
         '<div style="font-size:14px;color:#c9d1d9;line-height:2">当前runtime目录占用空间 ' + sizeMb + 'M</div>' +
-        '<div style="font-size:14px;color:#3fb950;line-height:2">小于目录上限600M，无需清理</div>';
+        '<div style="font-size:14px;color:#3fb950;line-height:2">小于目录上限' + thresholdMb + 'M，无需清理</div>';
       document.getElementById('btnRuntimeCleanStart').style.display = 'none';
     }
   } catch (e) {
