@@ -34,8 +34,12 @@ _PARITY_MAP = {"N": "N", "E": "E", "O": "O", "None": "N", "Even": "E", "Odd": "O
 _FLOW_MAP = {"N": None, "None": None, "RTS/CTS": "rtscts", "XON/XOFF": "xonxoff"}
 _STOPBITS_MAP = {"1": 1, "1.5": 1.5, "2": 2}
 
-# 二级密码提示的各变体（与 SSH 的 marker 集合一致）
+# 二级登录提示符变体
+# 注意：串口控制台下 login 命令提示符为 "login:"（BusyBox 风格），
+# 而 SSH PTY 下为 "Username:"，两者都视为用户名提示
+_USERNAME_MARKERS = ["Username:", "username:", "Login:", "login:"]
 _PASSWD_MARKERS = ["Passwd:", "Password:", "password:", "passwd:"]
+_LOGIN_PROMPT_MARKERS = _USERNAME_MARKERS + _PASSWD_MARKERS
 
 
 class SerialSession:
@@ -289,18 +293,19 @@ class SerialSession:
         return True
 
     # ============================================================
-    # 二级登录（串口，流程与 SSHSession.enter_level2 完全一致）
+    # 二级登录（串口，流程与 SSHSession.enter_level2 一致 + 串口自适应）
     # ============================================================
     def enter_level2(self, password):
         """进入设备后台二级 shell。
 
-        VMS-B 旧版本：login → 直接输入二级密码并回车
-        其他设备：login → Username: → zhimakaimen → Ctrl+Q → Ctrl+W → Passwd: → 密码
+        与 SSH 相同的交互序列：login → 用户名提示 → zhimakaimen → Ctrl+Q → Ctrl+W →
+        密码提示 → 二级密码。
 
-        与 SSH 的差异仅有一处：串口下 device_version 可能获取失败，
-        legacy 流程中若检测到 Username: 提示则自动切换为标准流程。
-        提示符未按预期出现时立即返回失败（与 SSH 相同），绝不向未知的
-        提示符注入密码，避免污染设备控制台状态。
+        串口自适应（仅处理串口与 SSH PTY 的终端差异，不改变语义）：
+        1. 串口控制台 login 提示符为 "login:"，与 SSH 的 "Username:" 等同处理
+        2. 串口 TTY 为 canonical 模式时 Ctrl+W(删词)/Ctrl+Q(XON) 可能被吞，
+           导致密码提示不出现 → 自动回退：普通回车方式重试一次（不用 Ctrl 序列）
+        3. 提示符未按预期出现时立即返回失败，绝不向未知提示符注入密码
         """
         if not self.connected or not self.ser:
             return {"ok": False, "output": "串口未连接"}
@@ -315,53 +320,54 @@ class SerialSession:
 
             buf = ""
             self.send("login\r")
+            buf, _ = self._read_until_marker(_LOGIN_PROMPT_MARKERS, 4.0)
 
-            if self._is_vmsb_legacy():
-                logger.info("Serial level2: legacy VMS-B flow (login → password)")
-                buf, found_pass = self._read_until_marker(_PASSWD_MARKERS, 3.0)
-                # 串口特有自适应：版本未知按 legacy 处理，但实际出现 Username:
-                # 说明设备是新流程，切换为标准流程
-                if "Username:" in buf and not any(m in buf for m in _PASSWD_MARKERS):
-                    logger.info("Serial level2: Username prompt seen, switching to standard flow")
-                    self.send(config.LEVEL2_USERNAME)
-                    time.sleep(0.1)
-                    for ctrl in config.LEVEL2_CTRL_SEQUENCE:
-                        self.send(ctrl)
-                        time.sleep(0.1)
-                    self.send("\r")
-                    buf2, found_pass = self._read_until_marker("Passwd:", 3.0)
-                    buf += buf2
-                    if not found_pass:
-                        text = buf.replace("\r", "").strip()
-                        return {"ok": False, "output": f"未收到 Passwd 提示: {text[:200]}"}
-                    if password:
-                        self.send(password + "\r")
-                else:
-                    if not found_pass and password:
-                        # 旧版本可能不返回提示直接等待输入，超时后直接发送密码（与 SSH 一致）
-                        logger.warning("legacy VMS-B serial: no password prompt, sending directly")
-                    if password:
-                        self.send(password + "\r")
-            else:
-                # 标准流程（与 SSH 一致）：Username → zhimakaimen → Ctrl+Q → Ctrl+W → Passwd → 密码
-                logger.info("Serial level2: standard flow")
-                buf, found_user = self._read_until_marker("Username:", 3.0)
-                if not found_user:
-                    text = buf.replace("\r", "").strip()
-                    return {"ok": False, "output": f"未收到 Username 提示: {text[:200]}"}
+            user_seen = any(m in buf for m in _USERNAME_MARKERS)
+            pass_seen = any(m in buf for m in _PASSWD_MARKERS)
+
+            if pass_seen and not user_seen:
+                # 旧版流程：login 后直接等待密码（与 SSH legacy 一致）
+                logger.info("Serial level2: legacy flow (direct password)")
+                if password:
+                    self.send(password + "\r")
+            elif user_seen:
+                # 标准流程：用户名提示（Username: 或串口下的 login:）
+                logger.info("Serial level2: standard flow (prompt seen)")
                 self.send(config.LEVEL2_USERNAME)
                 time.sleep(0.1)
                 for ctrl in config.LEVEL2_CTRL_SEQUENCE:
                     self.send(ctrl)
                     time.sleep(0.1)
                 self.send("\r")
-                buf2, found_pass = self._read_until_marker("Passwd:", 3.0)
+                buf2, found_pass = self._read_until_marker(_PASSWD_MARKERS, 3.0)
                 buf += buf2
                 if not found_pass:
-                    text = buf.replace("\r", "").strip()
-                    return {"ok": False, "output": f"未收到 Passwd 提示: {text[:200]}"}
+                    # Ctrl 序列可能被串口 TTY 吞掉 → 回退为普通回车方式重试一次
+                    logger.warning("Serial level2: no Passwd prompt after ctrl seq, retrying plain mode")
+                    self._drain(0.2)
+                    self.send("login\r")
+                    buf3, found_user2 = self._read_until_marker(_USERNAME_MARKERS, 3.0)
+                    buf += buf3
+                    if not found_user2:
+                        text = buf.replace("\r", "").strip()
+                        return {"ok": False, "output": f"二级登录失败（未收到密码提示）: {text[-200:]}"}
+                    self.send(config.LEVEL2_USERNAME + "\r")
+                    buf4, found_pass2 = self._read_until_marker(_PASSWD_MARKERS, 3.0)
+                    buf += buf4
+                    if not found_pass2:
+                        text = buf.replace("\r", "").strip()
+                        return {"ok": False, "output": f"二级登录失败（未收到密码提示）: {text[-200:]}"}
                 if password:
                     self.send(password + "\r")
+            else:
+                # 未出现任何提示：版本判 legacy 时直接发密码（与 SSH 旧版行为一致），否则失败
+                if self._is_vmsb_legacy():
+                    logger.warning("Serial level2: no prompt seen, sending password directly (legacy)")
+                    if password:
+                        self.send(password + "\r")
+                else:
+                    text = buf.replace("\r", "").strip()
+                    return {"ok": False, "output": f"未收到 Username 提示: {text[:200]}"}
 
             # 读取登录结果：检测到二级欢迎横幅即提前结束（与 SSH 一致）
             t0 = time.time()
