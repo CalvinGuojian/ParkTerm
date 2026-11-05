@@ -35,6 +35,7 @@ from .upgrade import UpgradeManager, parse_upgrade_version
 from .backup import BackupManager
 from .runtime_clean import RuntimeCleanManager
 from .updater import updater as app_updater
+from .tftp_server import tftp_server, get_local_ips, TFTP_PORT
 
 logger = logging.getLogger("parkterm")
 
@@ -230,14 +231,19 @@ def api_connect():
         parity = d.get("parity", "N")
         stopbits = d.get("stopbits", "1")
         flowcontrol = d.get("flowcontrol", "N")
+        server_type = d.get("server_type", "")
         store.cleanup_stale()
-        logger.info("Serial connect request: port=%s baud=%d", serial_port, baudrate)
+        logger.info("Serial connect request: port=%s baud=%d type=%s", serial_port, baudrate, server_type)
         try:
             sid, session = store.create(
                 conn_type='serial', serial_port=serial_port, baudrate=baudrate,
                 databits=databits, parity=parity, stopbits=stopbits, flowcontrol=flowcontrol)
+            session.server_type = server_type
             session.connect()
-            return jsonify({"ok": True, "session_id": sid, "port_name": serial_port})
+            st = config.SERVER_TYPES.get(server_type, {})
+            return jsonify({"ok": True, "session_id": sid, "port_name": serial_port,
+                            "need_level2": st.get("need_level2", False),
+                            "features": st.get("features", [])})
         except Exception as e:
             import traceback
             logger.error("Serial connect failed: %s -> %s\n%s", serial_port, e, traceback.format_exc())
@@ -326,6 +332,139 @@ def api_disconnect():
     sid = (request.json or {}).get("session_id", "")
     store.remove(sid)
     return jsonify({"ok": True})
+
+
+@app.route("/api/serial_ports", methods=["GET"])
+def api_serial_ports():
+    """枚举本机所有可用串口（pyserial，兼容 Win7/10/11 与 Linux/macOS）。"""
+    try:
+        from serial.tools import list_ports
+        ports = []
+        for p in list_ports.comports():
+            desc = (p.description or "").strip()
+            # 过滤纯虚拟/无描述的无效项
+            if p.device:
+                ports.append({"port": p.device, "description": desc})
+        # 按端口号排序（COM1 < COM10 处理）
+        def _port_key(item):
+            m = re.search(r"(\d+)$", item["port"])
+            return (int(m.group(1)) if m else 9999, item["port"])
+        ports.sort(key=_port_key)
+        return jsonify({"ok": True, "ports": ports})
+    except Exception as e:
+        logger.error("Serial port enumeration failed: %s", e)
+        return jsonify({"ok": False, "error": str(e), "ports": []})
+
+
+# ============================================================
+# TFTP 文件传输（串口连接使用）
+# ============================================================
+def _tftp_default_root():
+    root = os.path.join(os.path.expanduser("~"), "ParkTermTFTP")
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+@app.route("/api/tftp_status", methods=["GET"])
+def api_tftp_status():
+    running = tftp_server.running
+    return jsonify({
+        "ok": True,
+        "running": running,
+        "port": TFTP_PORT,
+        "ips": get_local_ips(),
+        "root_dir": tftp_server.root_dir,
+        "files": _tftp_list_files() if running else [],
+    })
+
+
+def _tftp_list_files():
+    files = []
+    try:
+        for name in os.listdir(tftp_server.root_dir):
+            fp = os.path.join(tftp_server.root_dir, name)
+            if os.path.isfile(fp) and not name.endswith(".tftp_part"):
+                files.append({"name": name, "size": os.path.getsize(fp),
+                              "mtime": int(os.path.getmtime(fp))})
+    except Exception:
+        pass
+    files.sort(key=lambda x: x["name"])
+    return files
+
+
+@app.route("/api/tftp_start", methods=["POST"])
+def api_tftp_start():
+    d = request.json or {}
+    root_dir = (d.get("root_dir") or "").strip() or _tftp_default_root()
+    try:
+        tftp_server.start(root_dir)
+        return jsonify({"ok": True, "port": TFTP_PORT, "ips": get_local_ips(),
+                        "root_dir": tftp_server.root_dir, "files": _tftp_list_files()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/tftp_stop", methods=["POST"])
+def api_tftp_stop():
+    tftp_server.stop()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/tftp_files", methods=["GET"])
+def api_tftp_files():
+    if not tftp_server.running:
+        return jsonify({"ok": False, "error": "TFTP 服务未启动"}), 400
+    return jsonify({"ok": True, "root_dir": tftp_server.root_dir,
+                    "files": _tftp_list_files()})
+
+
+@app.route("/api/tftp_upload", methods=["POST"])
+def api_tftp_upload():
+    """浏览器上传文件到 TFTP 共享目录（供设备端 tftp -g 拉取）。"""
+    if not tftp_server.running:
+        return jsonify({"ok": False, "error": "TFTP 服务未启动，请先打开文件传输面板启动服务"}), 400
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"ok": False, "error": "未选择文件"}), 400
+    filename = os.path.basename(f.filename or "")
+    if not filename:
+        return jsonify({"ok": False, "error": "文件名无效"}), 400
+    dest = os.path.join(tftp_server.root_dir, filename)
+    try:
+        f.save(dest)
+        logger.info("TFTP file uploaded via browser: %s (%d bytes)", dest, os.path.getsize(dest))
+        return jsonify({"ok": True, "files": _tftp_list_files()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/tftp_delete", methods=["POST"])
+def api_tftp_delete():
+    if not tftp_server.running:
+        return jsonify({"ok": False, "error": "TFTP 服务未启动"}), 400
+    name = os.path.basename((request.json or {}).get("name", ""))
+    if not name:
+        return jsonify({"ok": False, "error": "文件名无效"}), 400
+    fp = os.path.join(tftp_server.root_dir, name)
+    if not os.path.isfile(fp):
+        return jsonify({"ok": False, "error": "文件不存在"}), 404
+    try:
+        os.remove(fp)
+        return jsonify({"ok": True, "files": _tftp_list_files()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/tftp_download")
+def api_tftp_download():
+    """下载共享目录中的文件到浏览器（设备 tftp -p 上传到 PC 后取走）。"""
+    if not tftp_server.running:
+        return jsonify({"ok": False, "error": "TFTP 服务未启动"}), 400
+    name = os.path.basename(request.args.get("name", ""))
+    fp = os.path.join(tftp_server.root_dir, name)
+    if not name or not os.path.isfile(fp):
+        return jsonify({"ok": False, "error": "文件不存在"}), 404
+    return send_file(fp, as_attachment=True, download_name=name)
 
 
 @app.route("/api/level2", methods=["POST"])

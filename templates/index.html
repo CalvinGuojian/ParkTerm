@@ -664,12 +664,20 @@ body.light-theme .spinner{border-color:#d0d7de;border-top-color:#0969da}
       <button class="login-btn" id="btnConnect" onclick="doConnect()">连 接</button>
     </div></div>
     <div id="serial-tab" class="tab-content" style="display:none"><div class="login-form">
-      <div class="form-group"><label>串口</label><select id="inputSerialPort"><option value="">请选择串口...</option><option value="COM1">COM1</option><option value="COM2">COM2</option><option value="COM3">COM3</option><option value="/dev/ttyUSB0">/dev/ttyUSB0</option></select></div>
+      <div class="form-group"><label>服务器类型<i class="tooltip-icon">?<span class="tooltip-text">选择后与 SSH 连接效果一致：<br>可区分一级/二级环境，进入二级后可使用文件传输功能</span></i></label><select id="inputSerialServerType"><option value="">请选择</option><option value="ug">UG系列</option><option value="vms-u">VMS-U系列</option><option value="vms-b">VMS-B系列</option><option value="egs">EGS系列</option><option value="pms">PMS系列</option><option value="other">其他</option></select></div>
+      <div class="form-group"><label>串口<a onclick="loadSerialPorts(true)" style="float:right;cursor:pointer;color:#58a6ff;font-size:12px">刷新</a></label><select id="inputSerialPort"><option value="">请选择串口...</option></select></div>
       <div class="form-group"><label>波特率<i class="tooltip-icon">?<span class="tooltip-text">宇视设备常用波特率：<strong>115200</strong><br>其他常用：9600, 19200, 38400</span></i></label><select id="inputBaudrate"><option value="9600">9600</option><option value="19200">19200</option><option value="38400">38400</option><option value="57600">57600</option><option value="115200" selected>115200</option></select></div>
-      <div class="form-group"><label>数据位<i class="tooltip-icon">?<span class="tooltip-text">宇视设备推荐：<strong>8</strong> 位</span></i></label><select id="inputDatabits"><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8" selected>8</option></select></div>
-      <div class="form-group"><label>流控</label><select id="inputFlow"><option value="N" selected>None</option><option value="RTS/CTS">RTS/CTS</option><option value="XON/XOFF">XON/XOFF</option></select></div>
-      <div class="form-group"><label>校验位<i class="tooltip-icon">?<span class="tooltip-text">宇视设备推荐：<strong>None</strong>（无校验）</span></i></label><select id="inputParity"><option value="N" selected>None</option><option value="E">Even</option><option value="O">Odd</option></select></div>
-      <div class="form-group"><label>停止位<i class="tooltip-icon">?<span class="tooltip-text">宇视设备推荐：<strong>1</strong> 位</span></i></label><select id="inputStopbits"><option value="1" selected>1</option><option value="1.5">1.5</option><option value="2">2</option></select></div>
+      <div class="form-group" style="margin-bottom:2px"><a id="serialAdvToggle" onclick="toggleSerialAdv()" style="cursor:pointer;color:#58a6ff;font-size:12px">更多配置 ▸</a></div>
+      <div id="serialAdvConfig" style="display:none">
+        <div style="display:flex;gap:8px">
+          <div class="form-group" style="flex:1"><label>数据位<i class="tooltip-icon">?<span class="tooltip-text">宇视设备推荐：<strong>8</strong> 位</span></i></label><select id="inputDatabits"><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8" selected>8</option></select></div>
+          <div class="form-group" style="flex:1"><label>流控</label><select id="inputFlow"><option value="N" selected>None</option><option value="RTS/CTS">RTS/CTS</option><option value="XON/XOFF">XON/XOFF</option></select></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <div class="form-group" style="flex:1"><label>校验位<i class="tooltip-icon">?<span class="tooltip-text">宇视设备推荐：<strong>None</strong>（无校验）</span></i></label><select id="inputParity"><option value="N" selected>None</option><option value="E">Even</option><option value="O">Odd</option></select></div>
+          <div class="form-group" style="flex:1"><label>停止位<i class="tooltip-icon">?<span class="tooltip-text">宇视设备推荐：<strong>1</strong> 位</span></i></label><select id="inputStopbits"><option value="1" selected>1</option><option value="1.5">1.5</option><option value="2">2</option></select></div>
+        </div>
+      </div>
       <button class="login-btn" id="btnConnectSerial" onclick="doConnect()">连 接</button>
     </div></div>
   </div>
@@ -733,6 +741,8 @@ body.light-theme .spinner{border-color:#d0d7de;border-top-color:#0969da}
         <button class="btn btn-secondary" id="btnBackup" onclick="openBackup()" title="数据库备份" style="display:none">数据库备份</button>
         <div class="toolbar-sep" id="sepRuntimeClean" style="display:none"></div>
         <button class="btn btn-secondary" id="btnRuntimeClean" onclick="openRuntimeClean()" title="Runtime清理" style="display:none">Runtime清理</button>
+        <div class="toolbar-sep" id="sepTftp" style="display:none"></div>
+        <button class="btn btn-secondary" id="btnTftp" onclick="openTftp()" title="文件传输（TFTP）" style="display:none">文件传输</button>
         <div style="flex:1"></div>
         <div class="font-controls"><span style="font-size:11px;color:#6e7681">字体:</span><button class="font-btn" onclick="changeFont(-1)" title="减小字体">A-</button><button class="font-btn" onclick="changeFont(1)" title="增大字体">A+</button></div>
         <div class="toolbar-sep"></div>
@@ -980,6 +990,33 @@ body.light-theme .spinner{border-color:#d0d7de;border-top-color:#0969da}
       <div class="cap-actions" style="margin-top:10px">
         <button class="btn btn-secondary" onclick="closeRuntimeClean()" id="btnRuntimeCleanClose2">关闭窗口</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- TFTP 文件传输弹窗（串口连接使用） -->
+<div class="cap-layer hidden" id="tftpLayer">
+  <div class="capture-new-card" style="width:600px;max-width:96%;padding:22px">
+    <div class="login-logo" style="margin-bottom:12px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <span style="font-size:15px">文件传输（TFTP）</span>
+    </div>
+    <div id="tftpStatusBox" style="font-size:12px;color:#8b949e;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:12px;line-height:1.8">加载中...</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+      <button class="btn btn-primary" onclick="document.getElementById('tftpFileInput').click()">上传文件到共享目录</button>
+      <input type="file" id="tftpFileInput" style="display:none" onchange="tftpUpload(this)">
+      <button class="btn btn-secondary" onclick="tftpRefresh()">刷新列表</button>
+      <span style="flex:1"></span>
+      <button class="btn btn-secondary" id="btnTftpToggle" onclick="tftpToggleServer()">停止服务</button>
+    </div>
+    <div id="tftpFileList" style="max-height:220px;overflow:auto;border:1px solid #30363d;border-radius:6px;background:#0d1117"></div>
+    <div style="font-size:11px;color:#6e7681;margin-top:10px;line-height:1.9;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 10px">
+      使用说明（在串口终端中执行，IP 见上方）：<br>
+      · 设备下载（PC → 设备）：<span style="color:#79c0ff">tftp -g -r 文件名 PC的IP</span><br>
+      · 设备上传（设备 → PC）：<span style="color:#79c0ff">tftp -p -l 文件名 PC的IP</span>，完成后在列表中点击"下载"取回到本地
+    </div>
+    <div class="cap-actions" style="margin-top:10px">
+      <button class="btn btn-secondary" onclick="closeTftp()">关闭窗口</button>
     </div>
   </div>
 </div>
@@ -1552,11 +1589,11 @@ function setConnected(c, host, port, type) {
     connHost = host || '';
     connPort = port || 22;
     connType = type || 'ssh';
-    // 从登录表单读取服务器类型（串口连接时默认 auto）
+    // 从登录表单读取服务器类型（串口使用串口 tab 的类型选择器，效果与 SSH 一致）
     if (connType === 'ssh') {
       serverType = document.getElementById('inputServerType') ? document.getElementById('inputServerType').value : '';
     } else {
-      serverType = '';
+      serverType = document.getElementById('inputSerialServerType') ? document.getElementById('inputSerialServerType').value : '';
     }
     // VMS-B 默认路径为 /var/log（日志所在目录）
     fmCurrentPath = (serverType === 'vms-b') ? '/var/log' : '/';
@@ -1605,12 +1642,8 @@ function setConnected(c, host, port, type) {
     btn2.textContent = '进入二级';
     btn2.style.display = 'none';
 
-    // 串口连接不支持文件管理/抓包/二级
+    // 串口连接：文件管理始终锁定（无论一级/二级），抓包等依赖 SSH 的功能不可用
     if (connType === 'serial') {
-      document.getElementById('fmBody').innerHTML = '<div class="fm-empty" style="color:#d29922">串口连接不支持文件管理<br>请使用 SSH 连接以启用文件管理</div>';
-      var btnCapSer = document.getElementById('btnCapture');
-      if (btnCapSer) { btnCapSer.classList.add('btn-disabled-l2'); btnCapSer.disabled = true; btnCapSer.title = '串口连接不支持'; }
-      document.getElementById('btnLevel2').style.display = 'none';
       document.getElementById('deviceInfo').innerHTML = '<span class="di-badge">串口终端</span>';
     }
 
@@ -1650,6 +1683,23 @@ function setConnected(c, host, port, type) {
         setTimeout(function() { fetchDeviceInfo(0); }, 1200);
       }
     } else {
+      // 串口：与 SSH 相同的二级判断流程（按所选服务器类型区分一级/二级）
+      var needL2 = NEED_LEVEL2_TYPES.indexOf(serverType) >= 0;
+      if (!needL2) {
+        setLevel2Gating('unlocked');
+        document.getElementById('sbLevel').textContent = '已解锁';
+      } else {
+        setLevel2Gating('restricted');
+        document.getElementById('sbLevel').textContent = '一级环境';
+      }
+      // 串口下文件管理始终锁定，提示使用 SSH（无论一级还是二级）
+      var fmBody = document.getElementById('fmBody');
+      fmBody.style.display = 'flex';
+      fmBody.style.flexDirection = 'column';
+      fmBody.style.alignItems = 'center';
+      fmBody.style.justifyContent = 'center';
+      fmBody.innerHTML = '<div style="color:#d29922;text-align:center;font-size:13px"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:10px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><br>串口连接不支持文件管理<br>请使用 SSH 连接以启用文件管理</div>';
+      document.getElementById('fmCount').textContent = '';
       renderHistory();
     }
   } else {
@@ -1812,6 +1862,8 @@ async function doConnect() {
     var r;
     if (tab === 'serial') {
       var portName = document.getElementById('inputSerialPort').value;
+      var serialServerType = document.getElementById('inputSerialServerType').value;
+      if (!serialServerType) { alert('请选择服务器类型'); isConnecting = false; btn.disabled = false; btn.textContent = '连 接'; return; }
       if (!portName) { alert('请选择串口'); isConnecting = false; btn.disabled = false; btn.textContent = '连 接'; return; }
       r = await api('connect', {
         type: 'serial', port: portName,
@@ -1819,7 +1871,8 @@ async function doConnect() {
         databits: parseInt(document.getElementById('inputDatabits').value) || 8,
         parity: document.getElementById('inputParity').value,
         stopbits: document.getElementById('inputStopbits').value,
-        flowcontrol: document.getElementById('inputFlow').value
+        flowcontrol: document.getElementById('inputFlow').value,
+        server_type: serialServerType
       });
     } else {
       var host = document.getElementById('inputHost').value.trim();
@@ -1903,9 +1956,52 @@ function switchTab(btn, tabId) {
   btn.classList.add('active');
   document.querySelectorAll('.tab-content').forEach(function(t){ t.style.display = 'none'; });
   document.getElementById(tabId).style.display = 'block';
+  if (tabId === 'serial-tab') loadSerialPorts();
 }
 function getCurrentLoginTab() {
   return document.getElementById('ssh-tab').style.display === 'none' ? 'serial' : 'ssh';
+}
+
+// ================================================================
+//  串口：本机端口枚举 + 高级配置折叠
+// ================================================================
+var serialPortsLoaded = false;
+async function loadSerialPorts(force) {
+  var sel = document.getElementById('inputSerialPort');
+  if (!sel) return;
+  if (serialPortsLoaded && !force) return;
+  sel.innerHTML = '<option value="">正在读取本机串口列表...</option>';
+  try {
+    var r = await fetch('/api/serial_ports').then(function(x){ return x.json(); });
+    if (!r.ok) {
+      sel.innerHTML = '<option value="">读取串口列表失败</option>';
+      serialPortsLoaded = true;
+      return;
+    }
+    if (!r.ports || !r.ports.length) {
+      sel.innerHTML = '<option value="">未检测到可用串口，请检查设备连接</option>';
+      serialPortsLoaded = true;
+      return;
+    }
+    var html = '<option value="">请选择串口...</option>';
+    for (var i = 0; i < r.ports.length; i++) {
+      var p = r.ports[i];
+      var label = p.description ? (p.port + '（' + p.description + '）') : p.port;
+      html += '<option value="' + escHtml(p.port) + '">' + escHtml(label) + '</option>';
+    }
+    sel.innerHTML = html;
+  } catch (e) {
+    sel.innerHTML = '<option value="">读取串口列表失败</option>';
+  }
+  serialPortsLoaded = true;
+}
+
+function toggleSerialAdv() {
+  var adv = document.getElementById('serialAdvConfig');
+  var link = document.getElementById('serialAdvToggle');
+  var hidden = adv.style.display === 'none';
+  adv.style.display = hidden ? '' : 'none';
+  link.textContent = hidden ? '收起配置 ▴' : '更多配置 ▸';
 }
 
 // ================================================================
@@ -2801,6 +2897,32 @@ function setLevel2Gating(state) {
   setBtn(btnRC, sepRC, fRC, featShow, featDisabled, featTitle);
 
   updateCmdItemsState(state === 'restricted');
+
+  // 串口连接：隐藏依赖 SSH shell 的功能按钮，显示 TFTP 文件传输按钮（二级后解锁）
+  var btnTftp = document.getElementById('btnTftp');
+  var sepTftpEl = document.getElementById('sepTftp');
+  if (connType === 'serial') {
+    var serialHide = [['btnCapture','sepCapture'],['btnDiag','sepDiag'],
+                      ['btnUpgrade','sepUpgrade'],['btnBackup','sepBackup'],
+                      ['btnRuntimeClean','sepRuntimeClean']];
+    for (var i = 0; i < serialHide.length; i++) {
+      var b = document.getElementById(serialHide[i][0]);
+      var sp = document.getElementById(serialHide[i][1]);
+      if (b) { b.style.display = 'none'; b.disabled = true; }
+      if (sp) sp.style.display = 'none';
+    }
+    if (btnTftp) {
+      btnTftp.style.display = '';
+      if (sepTftpEl) sepTftpEl.style.display = '';
+      var tftpLocked = (state === 'restricted' || state === 'checking');
+      btnTftp.disabled = tftpLocked;
+      if (tftpLocked) btnTftp.classList.add('btn-disabled-l2'); else btnTftp.classList.remove('btn-disabled-l2');
+      btnTftp.title = tftpLocked ? '进入二级后解锁' : '文件传输（TFTP）';
+    }
+  } else {
+    if (btnTftp) btnTftp.style.display = 'none';
+    if (sepTftpEl) sepTftpEl.style.display = 'none';
+  }
 }
 
 // 切换常用命令面板中所有命令按钮的置灰状态
@@ -2947,11 +3069,13 @@ async function doLevel2() {
         document.getElementById('sbLevel').textContent = '二级环境';
       }
       setLevel2Gating('level2_done');   // 进入二级成功，显示已进入状态并解锁抓包管理
-      // 延迟刷新文件管理器，确保 shell 已切换到二级环境
-      setTimeout(function() { fmRefresh(); }, 1000);
-      // 进入二级后重新获取设备信息（level-1 下 ENVmonitor 不可用，level-2 后可获取完整信息）
-      if (serverType !== 'other') {
-        setTimeout(function() { fetchDeviceInfo(0); }, 1000);
+      // 延迟刷新文件管理器，确保 shell 已切换到二级环境（串口不支持文件管理，跳过）
+      if (connType !== 'serial') {
+        setTimeout(function() { fmRefresh(); }, 1000);
+        // 进入二级后重新获取设备信息（level-1 下 ENVmonitor 不可用，level-2 后可获取完整信息）
+        if (serverType !== 'other') {
+          setTimeout(function() { fetchDeviceInfo(0); }, 1000);
+        }
       }
     } else if (r.ok && !r.level2_ok) {
       // Wrong password (or other backend refusal): show the device's own
@@ -3467,6 +3591,99 @@ async function pollRuntimeCleanStatus() {
       document.getElementById('runtimeCleanStageLabel').innerHTML = '<span style="color:#f85149;font-weight:600">清理失败</span>';
     }
   } catch (e) {}
+}
+
+// ================================================================
+//  TFTP 文件传输（串口连接使用）
+// ================================================================
+var tftpRunning = false;
+
+function openTftp() {
+  document.getElementById('tftpLayer').classList.remove('hidden');
+  tftpRefresh();
+}
+
+function closeTftp() {
+  document.getElementById('tftpLayer').classList.add('hidden');
+}
+
+async function tftpRefresh() {
+  try {
+    var r = await fetch('/api/tftp_status').then(function(x){ return x.json(); });
+    if (r.ok) renderTftpStatus(r);
+  } catch (e) {}
+}
+
+function renderTftpStatus(r) {
+  tftpRunning = !!r.running;
+  var box = document.getElementById('tftpStatusBox');
+  var btnToggle = document.getElementById('btnTftpToggle');
+  var ipStr = (r.ips || []).join(' / ');
+  if (tftpRunning) {
+    box.innerHTML = '<span style="color:#3fb950">● 服务运行中</span>　端口：<b>' + r.port + '</b>　本机IP：<b style="color:#58a6ff">' + escHtml(ipStr) + '</b><br>共享目录：' + escHtml(r.root_dir || '');
+    btnToggle.textContent = '停止服务';
+  } else {
+    box.innerHTML = '<span style="color:#d29922">○ 服务未启动</span>　端口：<b>' + r.port + '</b>　本机IP：<b style="color:#58a6ff">' + escHtml(ipStr) + '</b><br>共享目录：' + escHtml(r.root_dir || '点击"启动服务"自动创建');
+    btnToggle.textContent = '启动服务';
+  }
+  renderTftpFiles(r.files || [], tftpRunning);
+}
+
+function renderTftpFiles(files, running) {
+  var el = document.getElementById('tftpFileList');
+  if (!files.length) {
+    el.innerHTML = '<div class="fm-empty" style="padding:20px">共享目录为空，请先上传文件</div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < files.length; i++) {
+    var f = files[i];
+    var sizeStr = f.size > 1048576 ? (f.size / 1048576).toFixed(2) + ' MB' : (f.size / 1024).toFixed(1) + ' KB';
+    var safeName = escHtml(f.name).replace(/"/g, '&quot;');
+    html += '<div style="display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid #30363d;font-size:12px;color:#c9d1d9">' +
+      '<span style="flex:1;word-break:break-all">' + escHtml(f.name) + '</span>' +
+      '<span style="color:#6e7681;margin:0 10px;white-space:nowrap">' + sizeStr + '</span>' +
+      (running ? '<a href="/api/tftp_download?name=' + encodeURIComponent(f.name) + '" style="color:#58a6ff;margin-right:10px;cursor:pointer">下载</a>' : '') +
+      (running ? '<a onclick="tftpDelete(this.dataset.name)" data-name="' + safeName + '" style="color:#f85149;cursor:pointer">删除</a>' : '') +
+      '</div>';
+  }
+  el.innerHTML = html;
+}
+
+async function tftpToggleServer() {
+  try {
+    if (tftpRunning) {
+      var r = await api('tftp_stop', {});
+      tftpRunning = false;
+    } else {
+      var r = await api('tftp_start', {});
+      if (!r.ok) { alert('TFTP 服务启动失败: ' + (r.error || '')); return; }
+      tftpRunning = true;
+    }
+    tftpRefresh();
+  } catch (e) { alert('操作异常: ' + e.message); }
+}
+
+async function tftpUpload(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var fd = new FormData();
+  fd.append('file', file);
+  input.value = '';
+  try {
+    var r = await fetch('/api/tftp_upload', { method: 'POST', body: fd }).then(function(x){ return x.json(); });
+    if (!r.ok) { alert('上传失败: ' + (r.error || '')); return; }
+    renderTftpFiles(r.files || [], tftpRunning);
+  } catch (e) { alert('上传异常: ' + e.message); }
+}
+
+async function tftpDelete(name) {
+  if (!confirm('确认删除共享目录中的文件：' + name + '？')) return;
+  try {
+    var r = await api('tftp_delete', { name: name });
+    if (!r.ok) { alert('删除失败: ' + (r.error || '')); return; }
+    renderTftpFiles(r.files || [], tftpRunning);
+  } catch (e) { alert('删除异常: ' + e.message); }
 }
 
 async function refreshBackupList() {
