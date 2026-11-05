@@ -101,6 +101,7 @@ class SerialSession:
         重连安全：每次调用设置新 socket_id，旧 reader 线程检测到 sid 不匹配后自动退出。
         """
         self.socket_id = sid
+        self._socketio = socketio
 
         def _reader():
             while self.connected and self.ser:
@@ -245,8 +246,11 @@ class SerialSession:
                 time.sleep(0.03)
         return buf, False
 
-    def _read_available(self, timeout=2.0, quiet=0.6):
-        """读取串口输出直到静默（quiet 秒无新数据）或超时，返回文本。"""
+    def _read_available(self, timeout=2.0, quiet=0.6, on_data=None):
+        """读取串口输出直到静默（quiet 秒无新数据）或超时，返回文本。
+
+        on_data：每读到一块数据时的回调（用于独占读取期间实时推送终端）。
+        """
         buf = ""
         t0 = time.time()
         last_data = time.time()
@@ -259,15 +263,32 @@ class SerialSession:
                 break
             if n:
                 try:
-                    buf += self.ser.read(n).decode("utf-8", errors="replace")
+                    chunk = self.ser.read(n).decode("utf-8", errors="replace")
                 except Exception:
-                    pass
+                    chunk = ""
+                if chunk:
+                    buf += chunk
+                    if on_data:
+                        try:
+                            on_data(chunk)
+                        except Exception:
+                            pass
                 last_data = time.time()
             elif time.time() - last_data > quiet:
                 break
             else:
                 time.sleep(0.03)
         return buf
+
+    def _emit_term(self, data):
+        """独占读取期间把数据实时推送到终端（保持终端输出可见）。"""
+        sid = self.socket_id
+        io = getattr(self, "_socketio", None)
+        if sid and io:
+            try:
+                io.emit("term-data", data, room=sid)
+            except Exception:
+                pass
 
     # ============================================================
     # 版本判定（与 SSHSession._is_vmsb_legacy_version 逻辑一致）
@@ -493,8 +514,9 @@ class SerialSession:
                     continue
                 logger.info("Serial device info: running '%s'", cmd)
                 self.send(cmd + "\r")
-                # 静默检测读取：1 秒无新数据即认为输出结束（上限 5 秒）
-                out = self._read_available(timeout=5.0, quiet=1.0)
+                # 静默检测读取（实测输出 ~0.1s 到齐，0.5s 静默即结束）；
+                # on_data 实时推送到终端，避免独占期间终端看起来卡死
+                out = self._read_available(timeout=3.0, quiet=0.5, on_data=self._emit_term)
                 _parse_fields(out)
                 self.send("\r")
                 self._drain(0.15)
