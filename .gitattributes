@@ -1,0 +1,7 @@
+# 统一换行符处理，防止 shell 脚本被转换为 CRLF（会导致 Linux 执行失败且 MD5 改变）
+*.sh text eol=lf
+*.py text eol=lf
+*.spec text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
