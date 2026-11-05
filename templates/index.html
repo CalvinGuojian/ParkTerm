@@ -1701,6 +1701,10 @@ function setConnected(c, host, port, type) {
       fmBody.innerHTML = '<div style="color:#d29922;text-align:center;font-size:13px"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:10px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><br>串口连接不支持文件管理<br>请使用 SSH 连接以启用文件管理</div>';
       document.getElementById('fmCount').textContent = '';
       renderHistory();
+      // 串口：非"其他"类型也获取设备信息（型号/版本/序列号，独占串口执行命令）
+      if (serverType !== 'other') {
+        setTimeout(function() { fetchDeviceInfo(0); }, 1200);
+      }
     }
   } else {
     setStatus('disconnected', '未连接');
@@ -3072,10 +3076,10 @@ async function doLevel2() {
       // 延迟刷新文件管理器，确保 shell 已切换到二级环境（串口不支持文件管理，跳过）
       if (connType !== 'serial') {
         setTimeout(function() { fmRefresh(); }, 1000);
-        // 进入二级后重新获取设备信息（level-1 下 ENVmonitor 不可用，level-2 后可获取完整信息）
-        if (serverType !== 'other') {
-          setTimeout(function() { fetchDeviceInfo(0); }, 1000);
-        }
+      }
+      // 进入二级后重新获取设备信息（level-1 下 ENVmonitor 不可用，level-2 后可获取完整信息）
+      if (serverType !== 'other') {
+        setTimeout(function() { fetchDeviceInfo(0); }, 1000);
       }
     } else if (r.ok && !r.level2_ok) {
       // Wrong password (or other backend refusal): show the device's own
