@@ -293,132 +293,29 @@ class SerialSession:
         return True
 
     # ============================================================
-    # 二级登录（串口，流程与 SSHSession.enter_level2 一致）
+    # 二级登录（串口）
     # ============================================================
     def enter_level2(self, password):
-        """进入设备后台二级 shell，交互序列与 SSH 完全一致。
+        """串口下进入二级。
 
-        关键差异修正：串口 shell 的 PATH 不含 /program/bin，直接执行 `login`
-        会解析到 BusyBox 系统登录（提示 login:/Password:），而非 SSH 下的
-        自定义二级登录程序（提示 Username:/Passwd:）。因此显式带上
-        /program/bin 的 PATH 与库路径调用同一个 login 程序，
-        之后的交互与 SSH 完全相同。
+        实机调试结论（COM3 实测）：
+        - 串口控制台的 login 为 BusyBox 登录（/bin/login → /bin/busybox，
+          提示符 login:/Password:），设备的二级登录魔数（Username:/zhimakaimen/
+          Ctrl+Q/Ctrl+W）内嵌于 SSH 会话的自定义受限 shell 中，文件系统中
+          不存在对应程序——串口下无法也无需复现 SSH 的二级登录流程。
+        - 串口控制台本身就是无限制的 root shell（ps/ls/grep 等均可直接执行，
+          而 SSH 一级环境会返回 "Not Support Cmd Yet!"），权限等同/超过
+          SSH 的二级环境。
+
+        因此串口下进入二级不做任何设备交互，直接置为二级状态。
         """
-        if not self.connected or not self.ser:
+        if not self.connected:
             return {"ok": False, "output": "串口未连接"}
-
-        self._exclusive_read.set()
-        self._exclusive_owner = True
-        try:
-            # 排空连接残留（与 SSH 的二次排空一致）
-            self._drain(0.15)
-            time.sleep(0.3)
-            self._drain(0.1)
-
-            buf = ""
-            # 与 SSH 执行同一个自定义 login 程序（补齐 PATH/LD_LIBRARY_PATH）
-            login_cmd = ("PATH=/program/bin:/program/bin/:$PATH "
-                         "LD_LIBRARY_PATH=/program/lib:/program/lib/:$LD_LIBRARY_PATH "
-                         "login")
-            self.send(login_cmd + "\r")
-            buf, prompt = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 4.0)
-
-            if prompt in _PASSWD_MARKERS:
-                # 旧版流程：login 后直接等待密码（与 SSH legacy 一致）
-                logger.info("Serial level2: legacy flow (direct password prompt)")
-                if password:
-                    self.send(password + "\r")
-            elif prompt:
-                # 用户名提示（Username: / login:）→ 标准流程（与 SSH 一致）
-                logger.info("Serial level2: username prompt=%s, standard flow", prompt)
-                self.send(config.LEVEL2_USERNAME)
-                time.sleep(0.1)
-                for ctrl in config.LEVEL2_CTRL_SEQUENCE:
-                    self.send(ctrl)
-                    time.sleep(0.1)
-                self.send("\r")
-                # 等待并让设备输出充分静默：Ctrl 序列若被 TTY 吞掉，设备可能
-                # 迟迟提交一次失败登录并重新提示，必须等它尘埃落定再判断，
-                # 否则残留的登录会话会与后续输入交错（Login incorrect 刷屏的根源）
-                buf2, prompt2 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 3.0, quiet=1.0)
-                buf += buf2
-                if prompt2 in _PASSWD_MARKERS:
-                    if password:
-                        self.send(password + "\r")
-                elif prompt2 in _USERNAME_MARKERS:
-                    # Ctrl 序列无效（用户名被吞/被删）→ 在当前用户名提示下
-                    # 用普通回车方式重试一次
-                    logger.warning("Serial level2: ctrl seq ineffective, retrying plain Enter")
-                    self.send(config.LEVEL2_USERNAME + "\r")
-                    buf3, prompt3 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 3.0, quiet=1.0)
-                    buf += buf3
-                    if prompt3 in _PASSWD_MARKERS:
-                        if password:
-                            self.send(password + "\r")
-                    else:
-                        text = buf.replace("\r", "").strip()
-                        return {"ok": False, "output": f"二级登录失败（未收到密码提示）: {text[-200:]}"}
-                elif prompt2:
-                    text = buf.replace("\r", "").strip()
-                    return {"ok": False, "output": f"二级登录失败（未收到密码提示）: {text[-200:]}"}
-                else:
-                    # 无提示 → 探测回车后再识别一次
-                    self.send("\r")
-                    buf3, prompt3 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 2.5, quiet=1.0)
-                    buf += buf3
-                    if prompt3 in _PASSWD_MARKERS:
-                        if password:
-                            self.send(password + "\r")
-                    elif prompt3 in _USERNAME_MARKERS:
-                        self.send(config.LEVEL2_USERNAME + "\r")
-                        buf4, prompt4 = self._wait_prompt(_LOGIN_PROMPT_MARKERS, 3.0, quiet=1.0)
-                        buf += buf4
-                        if prompt4 in _PASSWD_MARKERS:
-                            if password:
-                                self.send(password + "\r")
-                        else:
-                            text = buf.replace("\r", "").strip()
-                            return {"ok": False, "output": f"二级登录失败（未收到密码提示）: {text[-200:]}"}
-                    else:
-                        text = buf.replace("\r", "").strip()
-                        return {"ok": False, "output": f"二级登录失败: {text[-200:]}"}
-            else:
-                # 未出现任何提示：版本判 legacy 时直接发密码（与 SSH 旧版行为一致），否则失败
-                if self._is_vmsb_legacy():
-                    logger.warning("Serial level2: no prompt seen, sending password directly (legacy)")
-                    if password:
-                        self.send(password + "\r")
-                else:
-                    text = buf.replace("\r", "").strip()
-                    return {"ok": False, "output": f"未收到登录提示: {text[:200]}"}
-
-            # 读取登录结果（与 SSH 一致：检测到欢迎横幅提前结束）。
-            # 串口下窗口加长到 4 秒并以静默收尾：设备校验可能稍慢，
-            # 必须确保迟到的 "Login incorrect" 也被捕获，避免误报成功。
-            t0 = time.time()
-            while time.time() - t0 < 4.0:
-                chunk = self._read_available(timeout=0.4, quiet=0.5)
-                if chunk:
-                    buf += chunk
-                    if "Welcome to" in buf:
-                        # 横幅后再稍候确认无失败信息
-                        time.sleep(0.4)
-                        buf += self._read_available(timeout=0.8, quiet=0.4)
-                        break
-                else:
-                    time.sleep(0.03)
-
-            text = buf.replace("\r", "").strip()
-            failed = any(m in text.lower() for m in config.LEVEL2_FAIL_MARKERS)
-            self.level2_entered = not failed
-            logger.info("Serial level2 result: ok=%s output_len=%d", not failed, len(text))
-            return {"ok": not failed, "output": text}
-        except Exception as e:
-            logger.error("Serial level2 error: %s", e)
-            return {"ok": False, "output": str(e)}
-        finally:
-            self._exclusive_owner = False
-            self._exclusive_read.clear()
+        logger.info("Serial level2: serial console is already a full-privilege root shell, "
+                    "marking level2 without device interaction")
+        self.level2_entered = True
+        return {"ok": True,
+                "output": "串口控制台已具备最高权限（root），直接进入二级环境"}
 
     def _wait_prompt(self, prompts, timeout=3.0, quiet=0.6):
         """读取直到最后一行以某个提示符结尾，返回 (buffer, matched_prompt)。
