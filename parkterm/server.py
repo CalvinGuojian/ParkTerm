@@ -154,6 +154,15 @@ class SessionStore:
         if s:
             s.close()
 
+    def remove_by_serial_port(self, port_name):
+        """查找并关闭占用指定串口的会话（重连前兜底释放）。"""
+        with self.lock:
+            targets = [sid for sid, s in self.sessions.items()
+                       if getattr(s, "port_name", "") == port_name]
+        for sid in targets:
+            logger.info("Removing session holding serial port %s: %s", port_name, sid)
+            self.remove(sid)
+
     def cleanup_stale(self, max_idle=None):
         """清理过期会话。
 
@@ -234,20 +243,30 @@ def api_connect():
         server_type = d.get("server_type", "")
         store.cleanup_stale()
         logger.info("Serial connect request: port=%s baud=%d type=%s", serial_port, baudrate, server_type)
-        try:
-            sid, session = store.create(
-                conn_type='serial', serial_port=serial_port, baudrate=baudrate,
-                databits=databits, parity=parity, stopbits=stopbits, flowcontrol=flowcontrol)
-            session.server_type = server_type
-            session.connect()
-            st = config.SERVER_TYPES.get(server_type, {})
-            return jsonify({"ok": True, "session_id": sid, "port_name": serial_port,
-                            "need_level2": st.get("need_level2", False),
-                            "features": st.get("features", [])})
-        except Exception as e:
-            import traceback
-            logger.error("Serial connect failed: %s -> %s\n%s", serial_port, e, traceback.format_exc())
-            return jsonify({"ok": False, "error": f"串口连接失败: {e}"}), 500
+        # 释放仍占用同一串口的旧会话（页签关闭后端口未及时释放的兜底）
+        store.remove_by_serial_port(serial_port)
+        last_err = None
+        for attempt in range(2):
+            try:
+                sid, session = store.create(
+                    conn_type='serial', serial_port=serial_port, baudrate=baudrate,
+                    databits=databits, parity=parity, stopbits=stopbits, flowcontrol=flowcontrol)
+                session.server_type = server_type
+                session.connect()
+                st = config.SERVER_TYPES.get(server_type, {})
+                return jsonify({"ok": True, "session_id": sid, "port_name": serial_port,
+                                "need_level2": st.get("need_level2", False),
+                                "features": st.get("features", [])})
+            except Exception as e:
+                last_err = e
+                store.remove_by_serial_port(serial_port)
+                # Windows 驱动释放串口有延迟，首次失败等待后重试一次
+                if attempt == 0:
+                    logger.warning("Serial open failed (%s), retrying after 1s", e)
+                    time.sleep(1.0)
+        import traceback
+        logger.error("Serial connect failed: %s -> %s\n%s", serial_port, last_err, traceback.format_exc())
+        return jsonify({"ok": False, "error": f"串口连接失败: {last_err}（请确认串口未被其他程序占用）"}), 500
 
     # SSH 连接
     host = (d.get("host") or "").strip()

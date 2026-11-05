@@ -6,7 +6,7 @@ SerialSession 封装单个串口连接的生命周期：
   - 交互式流式输出（后台线程轮询读取，通过 SocketIO 推送）
   - 输入发送（write to serial port）
   - 连接关闭
-  - 二级登录（enter_level2）：独占串口读取，交互序列与 SSH 一致
+  - 二级登录（enter_level2）：交互序列与 SSH 完全一致，独占串口读取
   - 设备信息查询（get_device_info）：独占读取执行 manuinfo/version 命令并解析
 
 与 SSHSession 共享关键接口（connected / send / start_streaming / close / socket_id / last_activity），
@@ -34,6 +34,9 @@ _PARITY_MAP = {"N": "N", "E": "E", "O": "O", "None": "N", "Even": "E", "Odd": "O
 _FLOW_MAP = {"N": None, "None": None, "RTS/CTS": "rtscts", "XON/XOFF": "xonxoff"}
 _STOPBITS_MAP = {"1": 1, "1.5": 1.5, "2": 2}
 
+# 二级密码提示的各变体（与 SSH 的 marker 集合一致）
+_PASSWD_MARKERS = ["Passwd:", "Password:", "password:", "passwd:"]
+
 
 class SerialSession:
     """单个串口会话，管理一条串口连接。"""
@@ -58,9 +61,11 @@ class SerialSession:
         self.level2_entered = False
         self.server_type = ""       # 连接时选择的设备类型（同 SSH，用于二级判断/设备信息）
         self.device_version = ""
-        # 独占读取标志：置位时流式线程暂停读取，由 enter_level2/get_device_info
-        # 独占读取串口（解决双线程抢读导致二级登录收不到提示符的问题）
+        # 独占读取：置位时流式线程暂停读取，由 enter_level2/get_device_info 独占读取串口
+        # （解决双线程抢读导致二级登录收不到提示符的问题）
         self._exclusive_read = threading.Event()
+        self._exclusive_owner = False   # 是否正处于独占读取中（close 时等待其退出）
+        self._abort = False             # close 时通知独占读取循环提前退出
 
     def connect(self):
         """打开串口连接。"""
@@ -80,6 +85,7 @@ class SerialSession:
         logger.info("Opening serial port %s @ %d baud", self.port_name, self.baudrate)
         self.ser = serial.Serial(**kwargs)
         self.connected = True
+        self._abort = False
         logger.info("Serial port %s opened", self.port_name)
 
     # ============================================================
@@ -115,6 +121,8 @@ class SerialSession:
                     else:
                         time.sleep(0.02)
                 except Exception:
+                    if not self.connected:
+                        break
                     logger.exception("Serial streaming reader error")
                     self.connected = False
                     try:
@@ -153,15 +161,25 @@ class SerialSession:
         pass
 
     def close(self):
-        """关闭串口连接。"""
+        """关闭串口连接。
+
+        若独占读取正在进行（二级登录/设备信息查询），先通知其提前退出并等待，
+        避免 Windows 下串口句柄被占用导致端口未释放、重连失败。
+        """
         self.connected = False
-        self._exclusive_read.set()   # 唤醒并终止独占等待
+        self._abort = True
+        self._exclusive_read.set()
+        # 等待独占读取退出（最多 3 秒）
+        t0 = time.time()
+        while self._exclusive_owner and time.time() - t0 < 3.0:
+            time.sleep(0.05)
         if self.ser:
             try:
                 self.ser.close()
             except Exception:
                 pass
             self.ser = None
+        logger.info("Serial port %s closed", self.port_name)
 
     # ============================================================
     # 兼容接口（串口不支持的功能，返回安全默认值）
@@ -179,6 +197,8 @@ class SerialSession:
         """排空串口接收缓冲（丢弃残留数据）。"""
         t0 = time.time()
         while time.time() - t0 < quiet:
+            if self._abort or not self.connected:
+                return
             try:
                 n = self.ser.in_waiting
                 if n:
@@ -190,9 +210,9 @@ class SerialSession:
                 break
 
     def _read_until_marker(self, markers, timeout=3.0, quiet=1.0):
-        """等待串口输出中出现任一标记或静默，返回 (buffer, found)。
+        """等待串口输出中出现标记或静默，返回 (buffer, found)。
 
-        markers 可为字符串或列表；同时检测 quiet 秒无新数据则提前结束。
+        markers 可为字符串或列表；quiet 秒无新数据则提前结束。
         """
         if isinstance(markers, str):
             markers = [markers]
@@ -200,6 +220,8 @@ class SerialSession:
         t0 = time.time()
         last_data = time.time()
         while time.time() - t0 < timeout:
+            if self._abort or not self.connected:
+                return buf, False
             try:
                 n = self.ser.in_waiting
             except Exception:
@@ -219,12 +241,14 @@ class SerialSession:
                 time.sleep(0.03)
         return buf, False
 
-    def _read_available(self, timeout=2.0, quiet=0.8):
+    def _read_available(self, timeout=2.0, quiet=0.6):
         """读取串口输出直到静默（quiet 秒无新数据）或超时，返回文本。"""
         buf = ""
         t0 = time.time()
         last_data = time.time()
         while time.time() - t0 < timeout:
+            if self._abort or not self.connected:
+                break
             try:
                 n = self.ser.in_waiting
             except Exception:
@@ -242,60 +266,117 @@ class SerialSession:
         return buf
 
     # ============================================================
-    # 二级登录（串口）
+    # 版本判定（与 SSHSession._is_vmsb_legacy_version 逻辑一致）
+    # ============================================================
+    def _is_vmsb_legacy(self):
+        """判断 VMS-B 是否为旧版本（.27.xx 及以前），旧版本二级进入方式不同。
+
+        串口下 device_version 来自连接时的设备信息查询；未获取到时保守判定为旧版本。
+        """
+        if self.server_type != "vms-b":
+            return False
+        ver = (self.device_version or "").strip()
+        if not ver:
+            logger.warning("VMS-B serial version unknown, assuming legacy level2 flow")
+            return True
+        m = re.search(r'VMS-B\d+\.(\d+)\.', ver, re.IGNORECASE)
+        if m:
+            major = int(m.group(1))
+            logger.info("VMS-B serial version=%s, major=%d, legacy=%s",
+                        ver, major, major <= 27)
+            return major <= 27
+        logger.warning("VMS-B serial version=%s unparseable, assuming legacy", ver)
+        return True
+
+    # ============================================================
+    # 二级登录（串口，流程与 SSHSession.enter_level2 完全一致）
     # ============================================================
     def enter_level2(self, password):
-        """串口下进入设备二级 shell。
+        """进入设备后台二级 shell。
 
-        与 SSH 相同的交互序列：login → zhimakaimen → Ctrl+Q → Ctrl+W → 密码。
-        串口下无法预读版本号区分新旧流程，采用自适应：
-        login 后若直接出现密码提示则按旧版流程（直接发密码），
-        出现 Username: 则走标准流程。
-        独占读取期间流式线程暂停，终端无输出，结束后结果由前端展示。
+        VMS-B 旧版本：login → 直接输入二级密码并回车
+        其他设备：login → Username: → zhimakaimen → Ctrl+Q → Ctrl+W → Passwd: → 密码
+
+        与 SSH 的差异仅有一处：串口下 device_version 可能获取失败，
+        legacy 流程中若检测到 Username: 提示则自动切换为标准流程。
+        提示符未按预期出现时立即返回失败（与 SSH 相同），绝不向未知的
+        提示符注入密码，避免污染设备控制台状态。
         """
         if not self.connected or not self.ser:
             return {"ok": False, "output": "串口未连接"}
 
         self._exclusive_read.set()
+        self._exclusive_owner = True
         try:
-            # 排空残留数据，避免连接横幅干扰登录交互
-            self._drain(0.2)
+            # 排空连接残留（与 SSH 的二次排空一致）
+            self._drain(0.15)
+            time.sleep(0.3)
+            self._drain(0.1)
 
+            buf = ""
             self.send("login\r")
-            buf, _ = self._read_until_marker(
-                ["Username:", "Passwd:", "Password:", "password:", "passwd:"], 4.0)
 
-            if any(m in buf for m in ("Passwd:", "Password:", "password:", "passwd:")):
-                # 旧版流程：login 后直接输入二级密码
-                logger.info("Serial level2: legacy flow (direct password)")
-                if password:
-                    self.send(password + "\r")
+            if self._is_vmsb_legacy():
+                logger.info("Serial level2: legacy VMS-B flow (login → password)")
+                buf, found_pass = self._read_until_marker(_PASSWD_MARKERS, 3.0)
+                # 串口特有自适应：版本未知按 legacy 处理，但实际出现 Username:
+                # 说明设备是新流程，切换为标准流程
+                if "Username:" in buf and not any(m in buf for m in _PASSWD_MARKERS):
+                    logger.info("Serial level2: Username prompt seen, switching to standard flow")
+                    self.send(config.LEVEL2_USERNAME)
+                    time.sleep(0.1)
+                    for ctrl in config.LEVEL2_CTRL_SEQUENCE:
+                        self.send(ctrl)
+                        time.sleep(0.1)
+                    self.send("\r")
+                    buf2, found_pass = self._read_until_marker("Passwd:", 3.0)
+                    buf += buf2
+                    if not found_pass:
+                        text = buf.replace("\r", "").strip()
+                        return {"ok": False, "output": f"未收到 Passwd 提示: {text[:200]}"}
+                    if password:
+                        self.send(password + "\r")
+                else:
+                    if not found_pass and password:
+                        # 旧版本可能不返回提示直接等待输入，超时后直接发送密码（与 SSH 一致）
+                        logger.warning("legacy VMS-B serial: no password prompt, sending directly")
+                    if password:
+                        self.send(password + "\r")
             else:
-                # 标准流程：zhimakaimen → Ctrl+Q → Ctrl+W → 密码
+                # 标准流程（与 SSH 一致）：Username → zhimakaimen → Ctrl+Q → Ctrl+W → Passwd → 密码
                 logger.info("Serial level2: standard flow")
+                buf, found_user = self._read_until_marker("Username:", 3.0)
+                if not found_user:
+                    text = buf.replace("\r", "").strip()
+                    return {"ok": False, "output": f"未收到 Username 提示: {text[:200]}"}
                 self.send(config.LEVEL2_USERNAME)
                 time.sleep(0.1)
                 for ctrl in config.LEVEL2_CTRL_SEQUENCE:
                     self.send(ctrl)
                     time.sleep(0.1)
                 self.send("\r")
-                buf2, _ = self._read_until_marker(
-                    ["Passwd:", "Password:", "password:", "passwd:"], 3.0)
+                buf2, found_pass = self._read_until_marker("Passwd:", 3.0)
                 buf += buf2
+                if not found_pass:
+                    text = buf.replace("\r", "").strip()
+                    return {"ok": False, "output": f"未收到 Passwd 提示: {text[:200]}"}
                 if password:
                     self.send(password + "\r")
 
-            # 读取登录结果：检测到二级欢迎横幅即提前结束
+            # 读取登录结果：检测到二级欢迎横幅即提前结束（与 SSH 一致）
             t0 = time.time()
-            while time.time() - t0 < config.LEVEL2_RESPONSE_WAIT + 1.0:
-                chunk = self._read_available(timeout=0.5, quiet=0.4)
+            while time.time() - t0 < config.LEVEL2_RESPONSE_WAIT:
+                chunk = self._read_available(timeout=0.3, quiet=0.25)
                 if chunk:
                     buf += chunk
                     if "Welcome to" in buf:
-                        # 稍候片刻确认无失败信息后提前结束
                         time.sleep(0.3)
                         buf += self._read_available(timeout=0.5, quiet=0.3)
                         break
+                else:
+                    time.sleep(0.03)
+            # 兜底再读一次静默输出
+            buf += self._read_available(timeout=0.5, quiet=0.4)
 
             text = buf.replace("\r", "").strip()
             failed = any(m in text.lower() for m in config.LEVEL2_FAIL_MARKERS)
@@ -306,6 +387,7 @@ class SerialSession:
             logger.error("Serial level2 error: %s", e)
             return {"ok": False, "output": str(e)}
         finally:
+            self._exclusive_owner = False
             self._exclusive_read.clear()
 
     # ============================================================
@@ -343,21 +425,20 @@ class SerialSession:
                                 break
 
         self._exclusive_read.set()
+        self._exclusive_owner = True
         try:
-            self._drain(0.2)
+            self._drain(0.15)
             for cmd_key in ("manuinfo_cmd", "version_cmd"):
                 cmd = st.get(cmd_key)
                 if not cmd:
                     continue
                 logger.info("Serial device info: running '%s'", cmd)
                 self.send(cmd + "\r")
-                # 命令输出可能较慢：静默检测读取（上限 8s）
-                out = self._read_available(timeout=8.0, quiet=1.2)
+                # 静默检测读取：1 秒无新数据即认为输出结束（上限 5 秒）
+                out = self._read_available(timeout=5.0, quiet=1.0)
                 _parse_fields(out)
-                # 回车刷新提示符，为下一条命令做准备
                 self.send("\r")
-                time.sleep(0.2)
-                self._drain(0.2)
+                self._drain(0.15)
             self.device_version = info.get("pub", "")
             logger.info("Serial device info result: %s", info)
             return info
@@ -365,4 +446,5 @@ class SerialSession:
             logger.error("Serial get_device_info error: %s", e)
             return info
         finally:
+            self._exclusive_owner = False
             self._exclusive_read.clear()
