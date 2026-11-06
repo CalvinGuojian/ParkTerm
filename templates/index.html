@@ -1255,7 +1255,11 @@ function restoreSession(tabId) {
   // 刷新文件管理器列表（如果面板未折叠）
   var fmPanel = document.getElementById('fmPanel');
   if (fmPanel && !fmPanel.classList.contains('collapsed')) {
-    if (needLevel2 && !level2Done) {
+    if (connType === 'serial') {
+      // 串口：左侧文件管理不可用，文件传输使用工具栏"文件传输"（TFTP）
+      document.getElementById('fmBody').innerHTML = '<div class="fm-empty" style="color:#d29922">串口模式文件管理不可用<br>请使用 SSH 连接，或通过工具栏"文件传输"功能传输文件</div>';
+      document.getElementById('fmCount').textContent = '';
+    } else if (needLevel2 && !level2Done) {
       // 一级受限环境：直接显示锁定提示，不请求文件列表
       document.getElementById('fmBody').innerHTML = '<div class="fm-empty" style="color:#d29922">当前为后台一级受限环境，文件管理暂不可用<br><br><button class="btn btn-warning btn-sm" onclick="showLevel2Modal()">进入二级后重试</button></div>';
     } else {
@@ -1699,20 +1703,18 @@ function setConnected(c, host, port, type) {
       if (!needL2) {
         setLevel2Gating('unlocked');
         document.getElementById('sbLevel').textContent = '已解锁';
-        // 无二级限制（EGS/PMS/其他）：文件管理直接可用
-        setTimeout(function() { fmRefresh(); }, 800);
       } else {
         setLevel2Gating('restricted');
         document.getElementById('sbLevel').textContent = '一级环境';
-        // 一级环境：文件管理锁定提示（二级后由 doLevel2 触发加载）
-        var fmBody = document.getElementById('fmBody');
-        fmBody.style.display = 'flex';
-        fmBody.style.flexDirection = 'column';
-        fmBody.style.alignItems = 'center';
-        fmBody.style.justifyContent = 'center';
-        fmBody.innerHTML = '<div style="color:#d29922;text-align:center;font-size:13px"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:10px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><br>当前为一级环境，文件管理已锁定<br>请点击工具栏"进入二级"按钮解锁</div>';
-        document.getElementById('fmCount').textContent = '';
       }
+      // 串口下左侧文件管理不可用（无论一级还是二级），文件传输使用工具栏"文件传输"（TFTP）
+      var fmBody = document.getElementById('fmBody');
+      fmBody.style.display = 'flex';
+      fmBody.style.flexDirection = 'column';
+      fmBody.style.alignItems = 'center';
+      fmBody.style.justifyContent = 'center';
+      fmBody.innerHTML = '<div style="color:#d29922;text-align:center;font-size:13px"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:10px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><br>串口模式文件管理不可用<br>请使用 SSH 连接，或通过工具栏"文件传输"功能传输文件</div>';
+      document.getElementById('fmCount').textContent = '';
       renderHistory();
       // 串口：连接时先获取（一级下 update -v 为白名单命令可拿到版本，
       // manuinfo 被拦截拿不到型号/SN）；进入二级后 doLevel2 会重新获取全量
@@ -3109,9 +3111,10 @@ async function doLevel2() {
         document.getElementById('sbLevel').textContent = '二级环境';
       }
       setLevel2Gating('level2_done');   // 进入二级成功，显示已进入状态并解锁抓包管理
-      // 延迟刷新文件管理器，确保 shell 已切换到二级环境
-      // （串口二级后文件管理走交互式终端命令方式，同样可用）
-      setTimeout(function() { fmRefresh(); }, 1000);
+      if (connType !== 'serial') {
+        // 延迟刷新文件管理器，确保 shell 已切换到二级环境
+        setTimeout(function() { fmRefresh(); }, 1000);
+      }
       // 进入二级后静默补全设备信息（串口一级下 manuinfo 被拦截只有版本，二级后补全
       // 型号/SN；SSH level-1 下 ENVmonitor 不可用，level-2 后补全）。
       // silent：不重置界面、失败不清空已有徽章，无可见的"刷新"动作
@@ -3696,7 +3699,7 @@ async function tftpLoadServer() {
   var el = document.getElementById('tftpServerList');
   el.innerHTML = '<div class="fm-empty" style="padding:14px"><span class="spinner"></span> 加载中...</div>';
   try {
-    var r = await api('sftp_listdir', { session_id: sessionId, path: dir });
+    var r = await api('sftp_ls', { session_id: sessionId, path: dir });
     if (!r.ok) {
       el.innerHTML = '<div class="fm-empty" style="padding:14px;color:#f85149">' + escHtml(r.error || '加载失败') + '</div>';
       tftpServerFiles = [];
