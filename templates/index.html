@@ -997,31 +997,43 @@ body.light-theme .spinner{border-color:#d0d7de;border-top-color:#0969da}
 
 <!-- TFTP 文件传输弹窗（串口连接使用） -->
 <div class="cap-layer hidden" id="tftpLayer">
-  <div class="capture-new-card" style="width:600px;max-width:96%;padding:22px">
-    <div class="login-logo" style="margin-bottom:12px">
+  <div class="capture-new-card" style="width:680px;max-width:96%;padding:22px">
+    <div class="login-logo" style="margin-bottom:10px">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       <span style="font-size:15px">文件传输（TFTP）</span>
+      <span id="tftpStatusBox" style="font-size:11px;color:#8b949e;margin-left:auto;font-weight:400">加载中...</span>
+      <button class="btn btn-secondary" id="btnTftpToggle" onclick="tftpToggleServer()" style="padding:3px 10px;font-size:11px">启动服务</button>
     </div>
-    <div id="tftpStatusBox" style="font-size:12px;color:#8b949e;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:12px;line-height:1.8">加载中...</div>
-    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
-      <span style="font-size:12px;color:#8b949e;white-space:nowrap">共享目录</span>
-      <input type="text" id="tftpRootInput" placeholder="例如 D:\ParkTermTFTP" style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:6px 10px;color:#c9d1d9;font-size:12px">
-      <button class="btn btn-secondary" onclick="tftpApplyRoot()">应用目录</button>
+    <!-- 本地目录 -->
+    <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
+      <span style="font-size:12px;color:#c9d1d9;white-space:nowrap;width:64px">本地目录</span>
+      <input type="text" id="tftpLocalDir" placeholder="例如 D:\ParkTermTFTP" style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:5px 10px;color:#c9d1d9;font-size:12px">
+      <button class="btn btn-secondary" onclick="tftpLoadLocal()" style="padding:4px 12px;font-size:12px">加载</button>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
-      <button class="btn btn-primary" onclick="document.getElementById('tftpFileInput').click()">选择文件上传</button>
-      <input type="file" id="tftpFileInput" style="display:none" multiple onchange="tftpUpload(this)">
-      <button class="btn btn-secondary" onclick="tftpRefresh()">刷新列表</button>
+    <div style="border:1px solid #30363d;border-radius:6px;background:#0d1117;margin-bottom:10px">
+      <div style="display:flex;align-items:center;padding:5px 10px;border-bottom:1px solid #30363d;font-size:11px;color:#8b949e">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="tftpLocalAll" onchange="tftpToggleAll('local',this.checked)"> 全选</label>
+        <span id="tftpLocalHint" style="margin-left:auto"></span>
+      </div>
+      <div id="tftpLocalList" style="max-height:130px;overflow:auto"></div>
+    </div>
+    <!-- 服务器目录 -->
+    <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
+      <span style="font-size:12px;color:#c9d1d9;white-space:nowrap;width:64px">服务器目录</span>
+      <input type="text" id="tftpServerDir" placeholder="例如 /var/fs_disk" style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:5px 10px;color:#c9d1d9;font-size:12px">
+      <button class="btn btn-secondary" onclick="tftpLoadServer()" style="padding:4px 12px;font-size:12px">加载</button>
+    </div>
+    <div style="border:1px solid #30363d;border-radius:6px;background:#0d1117;margin-bottom:10px">
+      <div style="display:flex;align-items:center;padding:5px 10px;border-bottom:1px solid #30363d;font-size:11px;color:#8b949e">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="tftpServerAll" onchange="tftpToggleAll('server',this.checked)"> 全选</label>
+        <span id="tftpServerHint" style="margin-left:auto"></span>
+      </div>
+      <div id="tftpServerList" style="max-height:130px;overflow:auto"></div>
+    </div>
+    <div class="cap-actions" style="margin-top:2px">
+      <button class="btn btn-primary" id="btnTftpDownload" onclick="tftpTransfer('down')" disabled>下载</button>
+      <button class="btn btn-primary" id="btnTftpUpload" onclick="tftpTransfer('up')" disabled>上传</button>
       <span style="flex:1"></span>
-      <button class="btn btn-secondary" id="btnTftpToggle" onclick="tftpToggleServer()">启动服务</button>
-    </div>
-    <div id="tftpFileList" style="max-height:220px;overflow:auto;border:1px solid #30363d;border-radius:6px;background:#0d1117"></div>
-    <div style="font-size:11px;color:#6e7681;margin-top:10px;line-height:1.9;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 10px">
-      使用说明（在串口终端中执行，IP 见上方）：<br>
-      · 设备下载（PC → 设备）：<span style="color:#79c0ff">tftp -g -r 文件名 PC的IP</span><br>
-      · 设备上传（设备 → PC）：<span style="color:#79c0ff">tftp -p -l 文件名 PC的IP</span>，完成后在列表中点击"下载"取回到本地
-    </div>
-    <div class="cap-actions" style="margin-top:10px">
       <button class="btn btn-secondary" onclick="closeTftp()">关闭窗口</button>
     </div>
   </div>
@@ -1243,11 +1255,7 @@ function restoreSession(tabId) {
   // 刷新文件管理器列表（如果面板未折叠）
   var fmPanel = document.getElementById('fmPanel');
   if (fmPanel && !fmPanel.classList.contains('collapsed')) {
-    if (connType === 'serial') {
-      // 串口：文件管理始终锁定，提示使用 SSH
-      document.getElementById('fmBody').innerHTML = '<div class="fm-empty" style="color:#d29922">串口连接不支持文件管理<br>请使用 SSH 连接以启用文件管理</div>';
-      document.getElementById('fmCount').textContent = '';
-    } else if (needLevel2 && !level2Done) {
+    if (needLevel2 && !level2Done) {
       // 一级受限环境：直接显示锁定提示，不请求文件列表
       document.getElementById('fmBody').innerHTML = '<div class="fm-empty" style="color:#d29922">当前为后台一级受限环境，文件管理暂不可用<br><br><button class="btn btn-warning btn-sm" onclick="showLevel2Modal()">进入二级后重试</button></div>';
     } else {
@@ -1691,18 +1699,20 @@ function setConnected(c, host, port, type) {
       if (!needL2) {
         setLevel2Gating('unlocked');
         document.getElementById('sbLevel').textContent = '已解锁';
+        // 无二级限制（EGS/PMS/其他）：文件管理直接可用
+        setTimeout(function() { fmRefresh(); }, 800);
       } else {
         setLevel2Gating('restricted');
         document.getElementById('sbLevel').textContent = '一级环境';
+        // 一级环境：文件管理锁定提示（二级后由 doLevel2 触发加载）
+        var fmBody = document.getElementById('fmBody');
+        fmBody.style.display = 'flex';
+        fmBody.style.flexDirection = 'column';
+        fmBody.style.alignItems = 'center';
+        fmBody.style.justifyContent = 'center';
+        fmBody.innerHTML = '<div style="color:#d29922;text-align:center;font-size:13px"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:10px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><br>当前为一级环境，文件管理已锁定<br>请点击工具栏"进入二级"按钮解锁</div>';
+        document.getElementById('fmCount').textContent = '';
       }
-      // 串口下文件管理始终锁定，提示使用 SSH（无论一级还是二级）
-      var fmBody = document.getElementById('fmBody');
-      fmBody.style.display = 'flex';
-      fmBody.style.flexDirection = 'column';
-      fmBody.style.alignItems = 'center';
-      fmBody.style.justifyContent = 'center';
-      fmBody.innerHTML = '<div style="color:#d29922;text-align:center;font-size:13px"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:10px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><br>串口连接不支持文件管理<br>请使用 SSH 连接以启用文件管理</div>';
-      document.getElementById('fmCount').textContent = '';
       renderHistory();
       // 串口：连接时先获取（一级下 update -v 为白名单命令可拿到版本，
       // manuinfo 被拦截拿不到型号/SN）；进入二级后 doLevel2 会重新获取全量
@@ -2857,7 +2867,9 @@ function initDragDrop() {
   body.addEventListener('drop', function(e){
     var files = e.dataTransfer && e.dataTransfer.files;
     if (!files || !files.length) return;
-    if (!sessionId || connType === 'serial') { alert('请先建立 SSH 连接'); return; }
+    if (!sessionId) return;
+    // 串口连接：拖拽上传跳转 TFTP 文件传输
+    if (connType === 'serial') { openTftp(); return; }
     pendingUploadFile = files[0];
     var rp = fmCurrentPath.endsWith('/') ? fmCurrentPath + pendingUploadFile.name : fmCurrentPath + '/' + pendingUploadFile.name;
     document.getElementById('uploadFileName').textContent = pendingUploadFile.name;
@@ -3097,10 +3109,9 @@ async function doLevel2() {
         document.getElementById('sbLevel').textContent = '二级环境';
       }
       setLevel2Gating('level2_done');   // 进入二级成功，显示已进入状态并解锁抓包管理
-      if (connType !== 'serial') {
-        // 延迟刷新文件管理器，确保 shell 已切换到二级环境
-        setTimeout(function() { fmRefresh(); }, 1000);
-      }
+      // 延迟刷新文件管理器，确保 shell 已切换到二级环境
+      // （串口二级后文件管理走交互式终端命令方式，同样可用）
+      setTimeout(function() { fmRefresh(); }, 1000);
       // 进入二级后静默补全设备信息（串口一级下 manuinfo 被拦截只有版本，二级后补全
       // 型号/SN；SSH level-1 下 ENVmonitor 不可用，level-2 后补全）。
       // silent：不重置界面、失败不清空已有徽章，无可见的"刷新"动作
@@ -3627,10 +3638,14 @@ async function pollRuntimeCleanStatus() {
 //  TFTP 文件传输（串口连接使用）
 // ================================================================
 var tftpRunning = false;
+var tftpLocalFiles = [];
+var tftpServerFiles = [];
 
 function openTftp() {
   document.getElementById('tftpLayer').classList.remove('hidden');
   tftpRefresh();
+  // 首次打开自动加载本地目录（TFTP 服务自动启动）
+  if (!document.getElementById('tftpLocalDir').value) tftpLoadLocal();
 }
 
 function closeTftp() {
@@ -3650,88 +3665,197 @@ function renderTftpStatus(r) {
   var btnToggle = document.getElementById('btnTftpToggle');
   var ipStr = (r.ips || []).join(' / ');
   if (tftpRunning) {
-    box.innerHTML = '<span style="color:#3fb950">● 服务运行中</span>　端口：<b>' + r.port + '</b>　本机IP：<b style="color:#58a6ff">' + escHtml(ipStr) + '</b><br>共享目录：' + escHtml(r.root_dir || '');
+    box.innerHTML = '<span style="color:#3fb950">● 运行中</span> IP:<b style="color:#58a6ff">' + escHtml(ipStr) + '</b>';
     btnToggle.textContent = '停止服务';
   } else {
-    box.innerHTML = '<span style="color:#d29922">○ 服务未启动</span>　端口：<b>' + r.port + '</b>　本机IP：<b style="color:#58a6ff">' + escHtml(ipStr) + '</b><br>共享目录：' + escHtml(r.root_dir || '填写目录后点击"应用目录"或"启动服务"');
+    box.innerHTML = '<span style="color:#d29922">○ 未启动</span> IP:<b style="color:#58a6ff">' + escHtml(ipStr) + '</b>';
     btnToggle.textContent = '启动服务';
   }
-  document.getElementById('tftpRootInput').value = r.root_dir || '';
-  renderTftpFiles(r.files || [], tftpRunning);
+  if (!document.getElementById('tftpLocalDir').value && r.root_dir) {
+    document.getElementById('tftpLocalDir').value = r.root_dir;
+  }
 }
 
-// 应用自定义共享目录（未启动则同时启动服务）
-async function tftpApplyRoot() {
-  var dir = document.getElementById('tftpRootInput').value.trim();
-  if (!dir) { alert('请填写共享目录路径'); return; }
+// 加载本地目录（= TFTP 共享目录，自动启动/切换服务）
+async function tftpLoadLocal() {
+  var dir = document.getElementById('tftpLocalDir').value.trim();
+  if (!dir) { alert('请填写本地目录路径'); return; }
+  var r = await api('tftp_start', { root_dir: dir });
+  if (!r.ok) { alert('加载本地目录失败: ' + (r.error || '')); return; }
+  tftpRunning = true;
+  tftpLocalFiles = r.files || [];
+  renderTftpStatus({ running: true, ips: r.ips, port: r.port, root_dir: r.root_dir });
+  tftpRenderLocalList();
+}
+
+// 加载服务器（设备）目录文件列表（串口终端命令方式）
+async function tftpLoadServer() {
+  if (!sessionId) { alert('请先连接设备'); return; }
+  var dir = document.getElementById('tftpServerDir').value.trim();
+  if (!dir) { alert('请填写服务器目录路径'); return; }
+  var el = document.getElementById('tftpServerList');
+  el.innerHTML = '<div class="fm-empty" style="padding:14px"><span class="spinner"></span> 加载中...</div>';
   try {
-    var r = await api('tftp_start', { root_dir: dir });
-    if (!r.ok) { alert('应用目录失败: ' + (r.error || '')); return; }
-    tftpRunning = true;
-    tftpRefresh();
-  } catch (e) { alert('操作异常: ' + e.message); }
+    var r = await api('sftp_listdir', { session_id: sessionId, path: dir });
+    if (!r.ok) {
+      el.innerHTML = '<div class="fm-empty" style="padding:14px;color:#f85149">' + escHtml(r.error || '加载失败') + '</div>';
+      tftpServerFiles = [];
+      tftpSyncButtons();
+      return;
+    }
+    tftpServerFiles = (r.items || []).filter(function(it){ return !it.is_dir && !it.is_link; });
+    tftpRenderServerList();
+  } catch (e) {
+    el.innerHTML = '<div class="fm-empty" style="padding:14px;color:#f85149">' + escHtml(e.message || '') + '</div>';
+    tftpServerFiles = [];
+    tftpSyncButtons();
+  }
 }
 
-function renderTftpFiles(files, running) {
-  var el = document.getElementById('tftpFileList');
-  if (!files.length) {
-    el.innerHTML = '<div class="fm-empty" style="padding:20px">共享目录为空，请先上传文件</div>';
+function tftpFmtSize(sz) {
+  if (sz > 1048576) return (sz / 1048576).toFixed(2) + ' MB';
+  if (sz > 1024) return (sz / 1024).toFixed(1) + ' KB';
+  return sz + ' B';
+}
+
+function tftpRenderLocalList() {
+  var el = document.getElementById('tftpLocalList');
+  document.getElementById('tftpLocalAll').checked = false;
+  if (!tftpRunning) {
+    el.innerHTML = '<div class="fm-empty" style="padding:14px;color:#d29922">TFTP 服务未启动，点击"加载"自动启动</div>';
+    tftpSyncButtons();
+    return;
+  }
+  if (!tftpLocalFiles.length) {
+    el.innerHTML = '<div class="fm-empty" style="padding:14px">目录为空</div>';
+    tftpSyncButtons();
     return;
   }
   var html = '';
-  for (var i = 0; i < files.length; i++) {
-    var f = files[i];
-    var sizeStr = f.size > 1048576 ? (f.size / 1048576).toFixed(2) + ' MB' : (f.size / 1024).toFixed(1) + ' KB';
-    var safeName = escHtml(f.name).replace(/"/g, '&quot;');
-    html += '<div style="display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid #30363d;font-size:12px;color:#c9d1d9">' +
+  for (var i = 0; i < tftpLocalFiles.length; i++) {
+    var f = tftpLocalFiles[i];
+    html += '<label style="display:flex;align-items:center;padding:5px 10px;border-bottom:1px solid #21262d;font-size:12px;color:#c9d1d9;cursor:pointer">' +
+      '<input type="checkbox" class="tftp-ck-local" onchange="tftpSyncButtons()" style="margin-right:8px">' +
       '<span style="flex:1;word-break:break-all">' + escHtml(f.name) + '</span>' +
-      '<span style="color:#6e7681;margin:0 10px;white-space:nowrap">' + sizeStr + '</span>' +
-      (running ? '<a href="/api/tftp_download?name=' + encodeURIComponent(f.name) + '" style="color:#58a6ff;margin-right:10px;cursor:pointer">下载</a>' : '') +
-      (running ? '<a onclick="tftpDelete(this.dataset.name)" data-name="' + safeName + '" style="color:#f85149;cursor:pointer">删除</a>' : '') +
-      '</div>';
+      '<span style="color:#6e7681;white-space:nowrap">' + tftpFmtSize(f.size) + '</span></label>';
   }
   el.innerHTML = html;
+  tftpSyncButtons();
+}
+
+function tftpRenderServerList() {
+  var el = document.getElementById('tftpServerList');
+  document.getElementById('tftpServerAll').checked = false;
+  if (!tftpServerFiles.length) {
+    el.innerHTML = '<div class="fm-empty" style="padding:14px">目录为空或加载失败</div>';
+    tftpSyncButtons();
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < tftpServerFiles.length; i++) {
+    var f = tftpServerFiles[i];
+    html += '<label style="display:flex;align-items:center;padding:5px 10px;border-bottom:1px solid #21262d;font-size:12px;color:#c9d1d9;cursor:pointer">' +
+      '<input type="checkbox" class="tftp-ck-server" onchange="tftpSyncButtons()" style="margin-right:8px">' +
+      '<span style="flex:1;word-break:break-all">' + escHtml(f.name) + '</span>' +
+      '<span style="color:#6e7681;white-space:nowrap">' + tftpFmtSize(f.size) + '</span></label>';
+  }
+  el.innerHTML = html;
+  tftpSyncButtons();
+}
+
+// 全选/取消全选
+function tftpToggleAll(side, checked) {
+  var cls = side === 'local' ? 'tftp-ck-local' : 'tftp-ck-server';
+  var cks = document.querySelectorAll('.' + cls);
+  for (var i = 0; i < cks.length; i++) cks[i].checked = checked;
+  tftpSyncButtons();
+}
+
+// 收集勾选的文件名
+function tftpCheckedNames(side) {
+  var cls = side === 'local' ? 'tftp-ck-local' : 'tftp-ck-server';
+  var cks = document.querySelectorAll('.' + cls);
+  var names = [];
+  var list = side === 'local' ? tftpLocalFiles : tftpServerFiles;
+  for (var i = 0; i < cks.length; i++) {
+    if (cks[i].checked && list[i]) names.push(list[i].name);
+  }
+  return names;
+}
+
+// 勾选联动按钮状态：本地勾选→上传点亮；服务器勾选→下载点亮
+function tftpSyncButtons() {
+  var localCk = document.querySelectorAll('.tftp-ck-local:checked').length;
+  var serverCk = document.querySelectorAll('.tftp-ck-server:checked').length;
+  document.getElementById('btnTftpUpload').disabled = !(tftpRunning && localCk > 0);
+  document.getElementById('btnTftpDownload').disabled = !(tftpRunning && serverCk > 0);
 }
 
 async function tftpToggleServer() {
   try {
     if (tftpRunning) {
-      var r = await api('tftp_stop', {});
+      await api('tftp_stop', {});
       tftpRunning = false;
     } else {
-      var r = await api('tftp_start', {});
+      var dir = document.getElementById('tftpLocalDir').value.trim();
+      var r = await api('tftp_start', dir ? { root_dir: dir } : {});
       if (!r.ok) { alert('TFTP 服务启动失败: ' + (r.error || '')); return; }
       tftpRunning = true;
+      tftpLocalFiles = r.files || [];
+      tftpRenderLocalList();
     }
     tftpRefresh();
+    tftpSyncButtons();
   } catch (e) { alert('操作异常: ' + e.message); }
 }
 
-async function tftpUpload(input) {
-  var files = input.files;
-  if (!files || !files.length) return;
-  input.value = '';
-  var failNames = [];
-  for (var i = 0; i < files.length; i++) {
-    var fd = new FormData();
-    fd.append('file', files[i]);
-    try {
-      var r = await fetch('/api/tftp_upload', { method: 'POST', body: fd }).then(function(x){ return x.json(); });
-      if (!r.ok) { failNames.push(files[i].name); continue; }
-      if (r.files) renderTftpFiles(r.files, tftpRunning);
-    } catch (e) {
-      failNames.push(files[i].name);
+// 执行传输：up=本地勾选 → 服务器目录；down=服务器勾选 → 本地目录
+async function tftpTransfer(direction) {
+  var isUp = direction === 'up';
+  var names = tftpCheckedNames(isUp ? 'local' : 'server');
+  if (!names.length) return;
+  var serverDir = document.getElementById('tftpServerDir').value.trim();
+  if (!serverDir) { alert('请先填写并加载服务器目录'); return; }
+  var btnUp = document.getElementById('btnTftpUpload');
+  var btnDown = document.getElementById('btnTftpDownload');
+  btnUp.disabled = true; btnDown.disabled = true;
+  var btnText = isUp ? btnUp : btnDown;
+  var oldText = btnText.textContent;
+  btnText.innerHTML = '<span class="spinner"></span> 传输中...';
+  try {
+    var r = await api('tftp_transfer', {
+      session_id: sessionId,
+      direction: direction,
+      files: names,
+      server_dir: serverDir,
+      timeout: 300
+    });
+    if (!r.ok) { alert('传输失败: ' + (r.error || '')); return; }
+    var failed = r.failed || [];
+    if (failed.length) {
+      alert('以下文件传输失败：\n' + failed.join('\n') + '\n\n请检查文件是否存在及 TFTP 服务状态');
     }
-  }
-  if (failNames.length) alert('以下文件上传失败：\n' + failNames.join('\n'));
+    if (isUp) {
+      // 上传完成 → 刷新服务器目录列表
+      tftpToggleAll('local', false);
+      await tftpLoadServer();
+    } else {
+      // 下载完成 → 刷新本地目录列表
+      tftpToggleAll('server', false);
+      await tftpLoadLocal();
+    }
+  } catch (e) { alert('传输异常: ' + e.message); }
+  btnText.textContent = oldText;
+  tftpSyncButtons();
 }
 
 async function tftpDelete(name) {
-  if (!confirm('确认删除共享目录中的文件：' + name + '？')) return;
+  if (!confirm('确认删除本地目录中的文件：' + name + '？')) return;
   try {
     var r = await api('tftp_delete', { name: name });
     if (!r.ok) { alert('删除失败: ' + (r.error || '')); return; }
-    renderTftpFiles(r.files || [], tftpRunning);
+    tftpLocalFiles = r.files || [];
+    tftpRenderLocalList();
   } catch (e) { alert('删除异常: ' + e.message); }
 }
 
@@ -4134,6 +4258,8 @@ function fmTriggerUpload() {
 function fmHandleUpload(inp) {
   var f = inp.files[0];
   if (!f) return;
+  // 串口连接：上传走 TFTP 文件传输
+  if (connType === 'serial') { openTftp(); inp.value = ''; return; }
   pendingUploadFile = f;
   var rp = fmCurrentPath.endsWith('/') ? fmCurrentPath+f.name : fmCurrentPath+'/'+f.name;
   document.getElementById('uploadFileName').textContent = f.name;
@@ -4215,6 +4341,8 @@ function doUpload() {
 // ================================================================
 function fmDownloadFile(fp) {
   if (!sessionId) return;
+  // 串口连接：下载走 TFTP 文件传输
+  if (connType === 'serial') { openTftp(); return; }
   var fn = fp.split('/').pop();
   var transferId = genTransferId();
   currentTransferId = transferId;

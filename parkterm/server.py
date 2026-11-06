@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import tempfile
 import threading
 import time
@@ -107,6 +108,9 @@ class SessionStore:
         sid = str(uuid.uuid4())
         if conn_type == 'serial':
             session = SerialSession(serial_port, baudrate, databits, parity, stopbits, flowcontrol)
+            # 串口也附加文件管理器：浏览/删除/新建/重命名走交互式终端命令降级链，
+            # 上传/下载（SFTP 类）串口不支持，由前端引导至 TFTP 文件传输
+            session.file_manager = FileManager(session, socketio)
         else:
             session = SSHSession(host, port, username, password, server_type=server_type)
             # 附加文件管理器与抓包管理器（按会话隔离）
@@ -472,6 +476,49 @@ def api_tftp_delete():
         return jsonify({"ok": True, "files": _tftp_list_files()})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/tftp_transfer", methods=["POST"])
+def api_tftp_transfer():
+    """通过串口终端执行 tftp 命令，在设备目录与 PC 共享目录之间传输文件。
+
+    direction=up   : PC(TFTP root) → 设备（tftp -g，即"上传"）
+    direction=down : 设备 → PC(TFTP root)（tftp -p，即"下载"）
+    """
+    d = request.json or {}
+    sid = d.get("session_id", "")
+    session = store.get(sid)
+    if not session or not session.connected or not getattr(session, "ser", None):
+        return jsonify({"ok": False, "error": "串口未连接"}), 400
+    if not tftp_server.running:
+        return jsonify({"ok": False, "error": "TFTP 服务未启动，请先加载本地目录"}), 400
+    direction = d.get("direction")
+    files = d.get("files") or []
+    server_dir = (d.get("server_dir") or "").strip()
+    timeout = int(d.get("timeout", 120) or 120)
+    if direction not in ("up", "down") or not files or not server_dir:
+        return jsonify({"ok": False, "error": "参数不完整"}), 400
+    pc_ip = (d.get("pc_ip") or "").strip() or get_local_ips()[0]
+
+    results = []
+    for f in files:
+        name = os.path.basename(str(f))
+        if not name:
+            continue
+        if direction == "up":
+            cmd = f"cd {shlex.quote(server_dir)} && tftp -g -r {shlex.quote(name)} {pc_ip}"
+        else:
+            cmd = f"cd {shlex.quote(server_dir)} && tftp -p -l {shlex.quote(name)} {pc_ip}"
+        logger.info("TFTP transfer (%s): %s", direction, cmd)
+        out = session.run_command(cmd, timeout=timeout)
+        low = out.lower()
+        ok = not any(m in low for m in ("not found", "timed out", "timeout",
+                                        "error", "fail", "refused"))
+        results.append({"name": name, "ok": ok, "output": out[-200:]})
+    failed = [r["name"] for r in results if not r["ok"]]
+    return jsonify({"ok": True, "results": results,
+                    "failed": failed,
+                    "files": _tftp_list_files()})
 
 
 @app.route("/api/tftp_download")

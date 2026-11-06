@@ -187,13 +187,57 @@ class SerialSession:
         logger.info("Serial port %s closed", self.port_name)
 
     # ============================================================
-    # 兼容接口（串口不支持的功能，返回安全默认值）
+    # 交互式命令执行（独占串口）
+    # 供 FileManager（ls/rm/mkdir/mv 降级链）与 TFTP 传输命令使用
     # ============================================================
-    def run_command(self, cmd, timeout=None):
+    def run_command(self, cmd, timeout=10):
+        """通过交互式终端独占执行命令并捕获输出（串口版）。
+
+        以 `cmd; echo <marker>=$?` 方式执行，读取到 marker 行即认为命令结束，
+        返回剥离回显与 marker 的纯输出。一级受限 shell 下返回
+        "Not Support Cmd Yet!"（与 SSH 行为一致）。
+        """
+        if not self.connected or not self.ser:
+            return ""
+        self._exclusive_read.set()
+        self._exclusive_owner = True
+        try:
+            self._drain(0.1)
+            marker = "PARKTERM_RC_%d" % (int(time.time() * 1000) % 1000000)
+            self.send(f"{cmd}; echo {marker}=$?\r")
+            out, _ = self._read_until_marker([marker], timeout, quiet=1.5)
+            text = out.replace("\r", "")
+            idx = text.find(marker)
+            if idx >= 0:
+                text = text[:idx]
+            lines = text.split("\n")
+            # 去掉首行的命令回显
+            first_word = cmd.split()[0] if cmd.split() else ""
+            if lines and lines[0].strip() and first_word and first_word in lines[0]:
+                lines = lines[1:]
+            return "\n".join(lines).strip()
+        except Exception as e:
+            logger.warning("serial run_command '%s' error: %s", cmd, e)
+            return ""
+        finally:
+            self._exclusive_owner = False
+            self._exclusive_read.clear()
+
+    def exec_run(self, cmd):
+        """串口无独立 exec 通道，返回空触发调用方降级到 run_command。"""
         return ""
 
     def run_command_exec(self, cmd, timeout=None):
         return ""
+
+    def get_sftp(self):
+        raise RuntimeError("串口连接不支持 SFTP")
+
+    def get_fs_client(self):
+        raise RuntimeError("串口连接不支持 SSH 文件通道")
+
+    def cmd_transport(self):
+        return None
 
     # ============================================================
     # 独占读取辅助（二级登录 / 设备信息查询使用）
