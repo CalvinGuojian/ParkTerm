@@ -280,16 +280,6 @@ class SerialSession:
                 time.sleep(0.03)
         return buf
 
-    def _emit_term(self, data):
-        """独占读取期间把数据实时推送到终端（保持终端输出可见）。"""
-        sid = self.socket_id
-        io = getattr(self, "_socketio", None)
-        if sid and io:
-            try:
-                io.emit("term-data", data, room=sid)
-            except Exception:
-                pass
-
     # ============================================================
     # 版本判定（与 SSHSession._is_vmsb_legacy_version 逻辑一致）
     # ============================================================
@@ -514,9 +504,9 @@ class SerialSession:
                     continue
                 logger.info("Serial device info: running '%s'", cmd)
                 self.send(cmd + "\r")
-                # 静默检测读取（实测输出 ~0.1s 到齐，0.5s 静默即结束）；
-                # on_data 实时推送到终端，避免独占期间终端看起来卡死
-                out = self._read_available(timeout=3.0, quiet=0.5, on_data=self._emit_term)
+                # 静默检测读取（实测输出 ~0.1s 到齐，0.5s 静默即结束）。
+                # 后台静默执行（与 SSH exec 通道一致）：捕获输出不推送终端
+                out = self._read_available(timeout=3.0, quiet=0.5)
                 _parse_fields(out)
                 self.send("\r")
                 self._drain(0.15)

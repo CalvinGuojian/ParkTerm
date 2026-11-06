@@ -1790,14 +1790,18 @@ async function api(ep, d) {
 // Retry intervals: 1s, 5s, 10s, 30s, 60s (5 retries)
 var DEVICE_INFO_RETRY_DELAYS = [1000, 5000, 10000, 30000, 60000];
 
-async function fetchDeviceInfo(retryCount) {
+async function fetchDeviceInfo(retryCount, silent) {
   if (!sessionId) return;
   // 预选类型时仅尝试1次（无5级重试），auto 模式保留完整重试链
   var maxRetries = (serverType && serverType !== 'other') ? 0 : DEVICE_INFO_RETRY_DELAYS.length;
-  if (retryCount === 0) {
-    document.getElementById('deviceInfo').innerHTML = '<span class="di-badge" style="color:#6e7681"><span class="spinner"></span>加载设备信息...</span>';
-  } else {
-    document.getElementById('deviceInfo').innerHTML = '<span class="di-badge" style="color:#6e7681"><span class="spinner"></span>重新获取(' + (retryCount) + '/' + maxRetries + ')...</span>';
+  // silent 模式（进入二级后的静默补全）：不重置界面、失败不清空已有徽章，
+  // 避免出现可见的"刷新"动作（与 SSH 二级后重取的观感一致）
+  if (!silent) {
+    if (retryCount === 0) {
+      document.getElementById('deviceInfo').innerHTML = '<span class="di-badge" style="color:#6e7681"><span class="spinner"></span>加载设备信息...</span>';
+    } else {
+      document.getElementById('deviceInfo').innerHTML = '<span class="di-badge" style="color:#6e7681"><span class="spinner"></span>重新获取(' + (retryCount) + '/' + maxRetries + ')...</span>';
+    }
   }
   try {
     var r = await api('device_info', { session_id: sessionId });
@@ -1824,7 +1828,9 @@ async function fetchDeviceInfo(retryCount) {
         if (info.serial_number) {
           html += '<span class="di-badge"><b>SN：</b>' + escHtml(info.serial_number) + '</span>';
         }
-        document.getElementById('deviceInfo').innerHTML = html;
+        // 内容无变化时不重写 DOM，避免无意义的重绘
+        var el = document.getElementById('deviceInfo');
+        if (el.innerHTML !== html) el.innerHTML = html;
         return;
       }
       // No fields parsed — treat as failure, retry if possible
@@ -1836,8 +1842,8 @@ async function fetchDeviceInfo(retryCount) {
     if (retryCount < maxRetries) {
       var delay = DEVICE_INFO_RETRY_DELAYS[retryCount];
       console.log('[DeviceInfo] will retry in ' + (delay/1000) + 's (attempt ' + (retryCount+1) + '/' + maxRetries + ')');
-      setTimeout(function() { fetchDeviceInfo(retryCount + 1); }, delay);
-    } else {
+      setTimeout(function() { fetchDeviceInfo(retryCount + 1, silent); }, delay);
+    } else if (!silent) {
       document.getElementById('deviceInfo').innerHTML = '';
       console.log('[DeviceInfo] all retries exhausted');
     }
@@ -1845,8 +1851,8 @@ async function fetchDeviceInfo(retryCount) {
     console.log('[DeviceInfo] exception:', e);
     if (retryCount < maxRetries) {
       var delay2 = DEVICE_INFO_RETRY_DELAYS[retryCount];
-      setTimeout(function() { fetchDeviceInfo(retryCount + 1); }, delay2);
-    } else {
+      setTimeout(function() { fetchDeviceInfo(retryCount + 1, silent); }, delay2);
+    } else if (!silent) {
       document.getElementById('deviceInfo').innerHTML = '';
     }
   }
@@ -3095,10 +3101,11 @@ async function doLevel2() {
         // 延迟刷新文件管理器，确保 shell 已切换到二级环境
         setTimeout(function() { fmRefresh(); }, 1000);
       }
-      // 进入二级后重新获取设备信息（串口一级下 manuinfo 被拦截只有版本，二级后取全量；
-      // SSH level-1 下 ENVmonitor 不可用，level-2 后可获取完整信息）
+      // 进入二级后静默补全设备信息（串口一级下 manuinfo 被拦截只有版本，二级后补全
+      // 型号/SN；SSH level-1 下 ENVmonitor 不可用，level-2 后补全）。
+      // silent：不重置界面、失败不清空已有徽章，无可见的"刷新"动作
       if (serverType !== 'other') {
-        setTimeout(function() { fetchDeviceInfo(0); }, 1000);
+        setTimeout(function() { fetchDeviceInfo(0, true); }, 1000);
       }
     } else if (r.ok && !r.level2_ok) {
       // Wrong password (or other backend refusal): show the device's own
